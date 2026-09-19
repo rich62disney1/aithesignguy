@@ -1,0 +1,66 @@
+[
+  {
+    "name": "In the Desert",
+    "collection": "Desert Wood Signs",
+    "theme": ["desert", "southwest", "cactus", "ranch"],
+    "image": "https://cdn.shopify.com/s/files/1/0699/9664/2417/files/Desert_Critters_preview.png?v=1789465172",
+    "price": 100.00,
+    "url": "https://calicowoodsigns.store/products/in-the-desert"
+  },
+  {
+    "name": "Miners' Life for Me",
+    "collection": "Desert Wood Signs",
+    "theme": ["desert", "mining", "old west"],
+    "image": "https://cdn.shopify.com/s/files/1/0699/9664/2417/files/068f3522-111d-4ef8-9230-d2e56e3572e7.jpg?v=1788420991",
+    "price": 200.00,
+    "url": "https://calicowoodsigns.store/products/miners-life-for-me"
+  },
+  {
+    "name": "Ranch Sign",
+    "collection": "On The Ranch",
+    "theme": ["ranch", "farm", "family", "country"],
+    "image": "https://cdn.shopify.com/s/files/1/0699/9664/2417/files/custom-ranch-family-wood-sign-dad-son-lrg.jpg?v=1786608224",
+    "price": 100.00,
+    "url": "https://calicowoodsigns.store/products/ranch-sign"
+  },
+  {
+    "name": "Bear n Cabin Forest Sign",
+    "collection": "Cabin decor",
+    "theme": ["forest", "cabin", "mountains", "bear", "lodge"],
+    "image": "https://cdn.shopify.com/s/files/1/0699/9664/2417/files/personalized-bear-forest-cabin-wood-sign-no-bears.jpg?v=1786630273",
+    "price": 250.00,
+    "url": "https://calicowoodsigns.store/products/bear-n-cabin-forest-sign"
+  },
+  {
+    "name": "At the Beach",
+    "collection": "Beach Signs",
+    "theme": ["beach", "ocean", "coastal", "surf"],
+    "image": "https://cdn.shopify.com/s/files/1/0699/9664/2417/files/Surf_Board_ebc01e59-c769-4816-8e56-d1c3382037a5.jpg?v=1789452368",
+    "price": 100.00,
+    "url": "https://calicowoodsigns.store/products/at-the-beach"
+  },
+  {
+    "name": "Kids Room Boys",
+    "collection": "Kid's Room",
+    "theme": ["kids", "boys room", "bedroom", "playroom"],
+    "image": "https://cdn.shopify.com/s/files/1/0699/9664/2417/files/Desk_Boys_preview-3.png?v=1789712825",
+    "price": 100.00,
+    "url": "https://calicowoodsigns.store/products/kids-room"
+  },
+  {
+    "name": "Kids Room Girls",
+    "collection": "Kid's Room",
+    "theme": ["kids", "girls room", "bedroom", "playroom"],
+    "image": "https://cdn.shopify.com/s/files/1/0699/9664/2417/files/Kids_Room_Girls_preview_09969f56-f2e0-47ac-a165-2b726ffb5a57.png?v=1789706655",
+    "price": 100.00,
+    "url": "https://calicowoodsigns.store/products/kids-room-girls"
+  },
+  {
+    "name": "Personalized Floral Garden Wood Sign",
+    "collection": "From the Garden",
+    "theme": ["garden", "floral", "flowers", "home"],
+    "image": "https://cdn.shopify.com/s/files/1/0699/9664/2417/files/6dea4100-313f-4483-b149-39da28548553.jpg?v=1788433032",
+    "price": 50.00,
+    "url": "https://calicowoodsigns.store/products/personalized-floral-garden-wood-sign"
+  }
+]
