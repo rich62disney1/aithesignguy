@@ -139,15 +139,15 @@
   inputEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') send(inputEl.value); });
 
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var rec;
   if (SR) {
-    rec = new SR();
-    rec.lang = 'en-US';
-    rec.onresult = function (e) { send(e.results[0][0].transcript); };
-    micBtn.onclick = function () { try { rec.start(); } catch (e) {} };
+    micBtn.onclick = function () {
+      var rec = new SR();
+      rec.lang = 'en-US';
+      rec.onresult = function (e) { send(e.results[0][0].transcript); };
+      try { rec.start(); } catch (e) {}
+    };
   } else {
-    micBtn.style.display = 'none';
-  }
+    micBtn.style.display = 'none';  }
 
   if (history.length) {
     renderHistory();
