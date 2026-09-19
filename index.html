@@ -36,6 +36,7 @@ const micBtn = document.getElementById('mic');
 let history = [];
 let voiceMode = false;
 let listening = false;
+let lastProducts = [];
 
 function setStatus(text) { statusEl.textContent = text || ''; }
 
@@ -107,8 +108,9 @@ async function send(text) {
   }
   addMsg(data.reply, 'ai');
   addProducts(data.products);
-  if (data.action === 'confirmed' && data.products && data.products.length) {
-    addHandoff(data.products[0]);
+if (data.products && data.products.length) { lastProducts = data.products; }
+  if (data.action === 'confirmed' && lastProducts.length) {
+    addHandoff(lastProducts[0]);
   }
   history.push({ role: 'assistant', content: JSON.stringify({ reply: data.reply, show: (data.products||[]).map(p=>p.name), action: data.action }) });
 
