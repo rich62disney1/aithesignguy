@@ -1,0 +1,84 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Calico Wood Signs — Concierge Test</title>
+<style>
+  body { font-family: Georgia, serif; background:#1e1611; color:#f2e6d8; margin:0; padding:20px; }
+  h1 { color:#d69735; font-size:1.2rem; }
+  #chat { max-width:600px; margin:0 auto; }
+  .msg { padding:10px 14px; border-radius:10px; margin:8px 0; max-width:80%; }
+  .me { background:#3d2c20; margin-left:auto; }
+  .ai { background:#681e17; }
+  .products { display:flex; flex-wrap:wrap; gap:10px; margin:10px 0; }
+  .products img { width:140px; height:140px; object-fit:cover; border-radius:8px; border:2px solid #d69735; }
+  .products div { text-align:center; font-size:12px; max-width:140px; }
+  #controls { max-width:600px; margin:20px auto; display:flex; gap:10px; }
+  input { flex:1; padding:10px; border-radius:8px; border:none; }
+  button { padding:10px 16px; border-radius:8px; border:none; background:#d69735; font-weight:bold; cursor:pointer; }
+</style>
+</head>
+<body>
+<div id="chat"><h1>Calico Wood Signs — Concierge (test)</h1></div>
+<div id="controls">
+  <input id="input" placeholder="Type or click mic and talk...">
+  <button id="mic">🎤</button>
+  <button id="send">Send</button>
+</div>
+<script>
+const chat = document.getElementById('chat');
+const input = document.getElementById('input');
+let history = [];
+
+function addMsg(text, cls) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls;
+  d.textContent = text;
+  chat.appendChild(d);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+function addProducts(products) {
+  if (!products || !products.length) return;
+  const row = document.createElement('div');
+  row.className = 'products';
+  products.forEach(p => {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `<img src="${p.image}"><div>${p.name}<br>$${p.price}</div>`;
+    row.appendChild(wrap);
+  });
+  chat.appendChild(row);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+async function send(text) {
+  if (!text.trim()) return;
+  addMsg(text, 'me');
+  input.value = '';
+  history.push({ role: 'user', content: text });
+  const res = await fetch('/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: text, history: history.slice(0, -1) })
+  });
+  const data = await res.json();
+  if (data.error) { addMsg('Error: ' + data.error, 'ai'); return; }
+  addMsg(data.reply, 'ai');
+  addProducts(data.products);
+  history.push({ role: 'assistant', content: JSON.stringify({ reply: data.reply, show: (data.products||[]).map(p=>p.name), action: data.action }) });
+}
+
+document.getElementById('send').onclick = () => send(input.value);
+input.addEventListener('keydown', e => { if (e.key === 'Enter') send(input.value); });
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SR) {
+  const rec = new SR();
+  rec.lang = 'en-US';
+  rec.onresult = e => send(e.results[0][0].transcript);
+  document.getElementById('mic').onclick = () => rec.start();
+} else {
+  document.getElementById('mic').style.display = 'none';
+}
+</script>
+</body>
+</html>
