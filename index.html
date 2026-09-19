@@ -120,35 +120,39 @@ document.getElementById('send').onclick = () => send(input.value);
 input.addEventListener('keydown', e => { if (e.key === 'Enter') send(input.value); });
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec;
-if (SR) {
-  rec = new SR();
-  rec.lang = 'en-US';
-  rec.interimResults = false;
-  rec.maxAlternatives = 1;
+let rec = null;
 
-  rec.onresult = e => {
+function makeRecognition() {
+  const r = new SR();
+  r.lang = 'en-US';
+  r.interimResults = false;
+  r.maxAlternatives = 1;
+  r.onresult = e => {
     const transcript = e.results[0][0].transcript;
     send(transcript);
   };
-  rec.onerror = (e) => {
+  r.onerror = () => {
     listening = false;
     if (voiceMode) {
       setStatus('Listening error, retrying...');
       setTimeout(() => { if (voiceMode) startListening(); }, 1200);
     }
   };
-  rec.onend = () => {
+  r.onend = () => {
     listening = false;
   };
-} else {
+  return r;
+}
+
+if (!SR) {
   micBtn.style.display = 'none';
 }
 
 function startListening() {
-  if (!rec || listening) return;
+  if (!SR || listening) return;
   listening = true;
   setStatus('Listening...');
+  rec = makeRecognition();
   try { rec.start(); } catch (e) { listening = false; }
 }
 
