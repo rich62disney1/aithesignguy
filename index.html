@@ -16,19 +16,28 @@
   #controls { max-width:600px; margin:20px auto; display:flex; gap:10px; }
   input { flex:1; padding:10px; border-radius:8px; border:none; }
   button { padding:10px 16px; border-radius:8px; border:none; background:#d69735; font-weight:bold; cursor:pointer; }
+  #mic.active { background:#c0392b; color:#fff; }
+  #status { max-width:600px; margin:0 auto; font-size:12px; color:#d69735; min-height:16px; }
 </style>
 </head>
 <body>
 <div id="chat"><h1>Calico Wood Signs — Concierge (test)</h1></div>
+<div id="status"></div>
 <div id="controls">
-  <input id="input" placeholder="Type or click mic and talk...">
-  <button id="mic">🎤</button>
+  <input id="input" placeholder="Type or click mic to start a conversation...">
+  <button id="mic">🎤 Start Talking</button>
   <button id="send">Send</button>
 </div>
 <script>
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
+const statusEl = document.getElementById('status');
+const micBtn = document.getElementById('mic');
 let history = [];
+let voiceMode = false;
+let listening = false;
+
+function setStatus(text) { statusEl.textContent = text || ''; }
 
 function addMsg(text, cls) {
   const d = document.createElement('div');
@@ -49,36 +58,110 @@ function addProducts(products) {
   chat.appendChild(row);
   window.scrollTo(0, document.body.scrollHeight);
 }
+const synth = window.speechSynthesis;
+function speak(text, onDone) {
+  if (!synth) { if (onDone) onDone(); return; }
+  synth.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.rate = 1;
+  utter.onend = () => { if (onDone) onDone(); };
+  utter.onerror = () => { if (onDone) onDone(); };
+  synth.speak(utter);
+}
 
 async function send(text) {
   if (!text.trim()) return;
   addMsg(text, 'me');
   input.value = '';
   history.push({ role: 'user', content: text });
-  const res = await fetch('/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: text, history: history.slice(0, -1) })
-  });
-  const data = await res.json();
-  if (data.error) { addMsg('Error: ' + data.error, 'ai'); return; }
+  setStatus(voiceMode ? 'Thinking...' : '');
+  let data;
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, history: history.slice(0, -1) })
+    });
+    data = await res.json();
+  } catch (e) {
+    addMsg('Error: could not reach the concierge.', 'ai');
+    if (voiceMode) startListening();
+    return;
+  }
+  if (data.error) {
+    addMsg('Error: ' + data.error, 'ai');
+    if (voiceMode) startListening();
+    return;
+  }
   addMsg(data.reply, 'ai');
   addProducts(data.products);
   history.push({ role: 'assistant', content: JSON.stringify({ reply: data.reply, show: (data.products||[]).map(p=>p.name), action: data.action }) });
-}
 
+  if (voiceMode) {
+    setStatus('Speaking...');
+    speak(data.reply, () => {
+      if (voiceMode) startListening();
+    });
+  } else {
+    setStatus('');
+  }
+}
 document.getElementById('send').onclick = () => send(input.value);
 input.addEventListener('keydown', e => { if (e.key === 'Enter') send(input.value); });
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec;
 if (SR) {
-  const rec = new SR();
+  rec = new SR();
   rec.lang = 'en-US';
-  rec.onresult = e => send(e.results[0][0].transcript);
-  document.getElementById('mic').onclick = () => rec.start();
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+
+  rec.onresult = e => {
+    const transcript = e.results[0][0].transcript;
+    send(transcript);
+  };
+  rec.onerror = (e) => {
+    listening = false;
+    if (voiceMode) {
+      setStatus('Listening error, retrying...');
+      setTimeout(() => { if (voiceMode) startListening(); }, 1200);
+    }
+  };
+  rec.onend = () => {
+    listening = false;
+  };
 } else {
-  document.getElementById('mic').style.display = 'none';
+  micBtn.style.display = 'none';
 }
+
+function startListening() {
+  if (!rec || listening) return;
+  listening = true;
+  setStatus('Listening...');
+  try { rec.start(); } catch (e) { listening = false; }
+}
+
+function stopVoiceMode() {
+  voiceMode = false;
+  micBtn.textContent = '🎤 Start Talking';
+  micBtn.classList.remove('active');
+  setStatus('');
+  if (synth) synth.cancel();
+  if (rec) { try { rec.abort(); } catch (e) {} }
+  listening = false;
+}
+
+micBtn.onclick = () => {
+  if (!voiceMode) {
+    voiceMode = true;
+    micBtn.textContent = '🔴 End Conversation';
+    micBtn.classList.add('active');
+    startListening();
+  } else {
+    stopVoiceMode();
+  }
+};
 </script>
 </body>
 </html>
