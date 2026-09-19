@@ -152,11 +152,18 @@
   if (history.length) {
     renderHistory();
     openPanel();
-    if (justArrived) {
-      addMsg("Here we are! Take all the time you want on the wording, size, and colors below — I'm right here if you want to see something else.", 'cw-ai');
+  if (justArrived) {
+      addMsg("Here we are! Taking you right into the editor — I'm right here if you want to see something else.", 'cw-ai');
       var cleared = loadState();
       cleared.pendingArrival = false;
       saveState(cleared);
+      var wizTries = 0;
+      var wizTimer = setInterval(function () {
+        wizTries++;
+        var wizBtn = document.getElementById('customily-personalize-button') || document.querySelector('.customily-personalize-button');
+        if (wizBtn) { clearInterval(wizTimer); wizBtn.click(); }
+        else if (wizTries > 20) { clearInterval(wizTimer); }
+      }, 300);
     }
   }
 })();
