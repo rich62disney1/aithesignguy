@@ -21,7 +21,7 @@ Your job in this conversation:
 5. Keep your tone warm, unhurried, a little old-craftsman charm - small subtle smile-inducing touches are fine (a wink, not a big joke). Never be pushy or salesy.
 6. Keep responses SHORT - this is a spoken conversation, not an essay. 1-3 sentences of talk, then let the picture(s) do the rest.
 
-Respond ONLY with a JSON object, no other text, in this exact shape:
+Respond ONLY with a raw JSON object, no markdown code fences, no other text, in this exact shape:
 {"reply": "<what you say out loud>", "show": ["<exact sign name from catalog>", ...], "action": "browsing" | "confirmed"}
 
 - "show" should be 0-3 exact names from the CATALOG that match what to display right now (empty array if nothing new to show, e.g. just chit-chat).
@@ -48,7 +48,8 @@ app.post('/chat', async (req, res) => {
       messages
     });
 
-    const text = response.content[0].text;
+    let text = response.content[0].text.trim();
+    text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
     let parsed;
     try {
       parsed = JSON.parse(text);
