@@ -49,15 +49,8 @@ function addMsg(text, cls) {
 }
 function addHandoff(product) {
   if (!product) return;
-  const a = document.createElement('a');
-  a.href = product.url;
-  a.target = '_blank';
-  a.rel = 'noopener';
-  a.textContent = 'Customize This Sign →';
-  a.style.cssText = 'display:inline-block;margin:6px 0 14px;padding:10px 16px;background:#d69735;color:#1e1611;font-weight:bold;border-radius:8px;text-decoration:none;';
-  chat.appendChild(a);
-  window.scrollTo(0, document.body.scrollHeight);
-  window.scrollTo(0, document.body.scrollHeight);
+  setStatus('Taking you there to customize it...');
+    setTimeout(() => { window.location.href = product.url; }, 1800);
 }
 function addProducts(products) {
   if (!products || !products.length) return;
