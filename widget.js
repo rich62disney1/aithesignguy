@@ -105,13 +105,24 @@
   // each turn. Typing/clicking Send still works exactly as before and is
   // unaffected by voiceMode.
   //
-  // Speech-out goes through the server's /tts endpoint (Caleb - The
-  // Sheriff Guy, an ElevenLabs voice) instead of the browser's default
-  // speechSynthesis voice. If that ever fails (offline, quota, etc.) it
-  // just calls onDone so the loop keeps going instead of getting stuck.
-  var currentAudio = null;
+  // Speech-out goes through the server's /tts endpoint (an ElevenLabs
+  // voice) instead of the browser's default speechSynthesis voice. If
+  // that ever fails (offline, quota, etc.) it just calls onDone so the
+  // loop keeps going instead of getting stuck.
+  //
+  // IMPORTANT (Safari/iOS): a brand-new `new Audio()` created outside a
+  // direct tap only gets to autoplay once before Safari starts silently
+  // blocking it - later turns in the loop are triggered by speech
+  // recognition results, not a fresh tap, so a fresh Audio element each
+  // time plays once then goes silent forever after (this is exactly what
+  // Rich saw: first reply spoke, every one after that printed but made no
+  // sound). Fix: reuse ONE Audio element for the whole session, and
+  // "unlock" it with a muted play+pause directly inside the mic tap's own
+  // click handler (see micBtn.onclick below) - once an element has played
+  // during a real user gesture, Safari keeps letting that same element
+  // play again later without another tap.
+  var audioEl = new Audio();
   function speak(text, onDone) {
-    if (currentAudio) { try { currentAudio.pause(); } catch (e) {} currentAudio = null; }
     fetch(API + '/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -121,11 +132,10 @@
       return res.blob();
     }).then(function (blob) {
       var url = URL.createObjectURL(blob);
-      var audio = new Audio(url);
-      currentAudio = audio;
-      audio.onended = function () { URL.revokeObjectURL(url); if (currentAudio === audio) currentAudio = null; if (onDone) onDone(); };
-      audio.onerror = function () { URL.revokeObjectURL(url); if (currentAudio === audio) currentAudio = null; if (onDone) onDone(); };
-      audio.play().catch(function () { if (onDone) onDone(); });
+      audioEl.onended = function () { URL.revokeObjectURL(url); if (onDone) onDone(); };
+      audioEl.onerror = function () { URL.revokeObjectURL(url); if (onDone) onDone(); };
+      audioEl.src = url;
+      audioEl.play().catch(function () { if (onDone) onDone(); });
     }).catch(function () {
       if (onDone) onDone();
     });
@@ -217,7 +227,7 @@
     micBtn.textContent = '🎤';
     micBtn.classList.remove('cw-mic-active');
     setStatus('');
-    if (currentAudio) { try { currentAudio.pause(); } catch (e) {} currentAudio = null; }
+    try { audioEl.pause(); } catch (e) {}
     if (rec) { try { rec.abort(); } catch (e) {} }
     listening = false;
   }
@@ -228,6 +238,11 @@
         voiceMode = true;
         micBtn.textContent = '🔴';
         micBtn.classList.add('cw-mic-active');
+        // Safari/iOS audio unlock: a silent play+pause done synchronously
+        // inside this real tap grants audioEl permission to autoplay
+        // later (triggered by speech results, not another tap) for the
+        // rest of the hands-free loop.
+        try { audioEl.play().catch(function () {}); audioEl.pause(); } catch (e) {}
         startListening();
       } else {
         stopVoiceMode();
