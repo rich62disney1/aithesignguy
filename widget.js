@@ -30,7 +30,8 @@
     '#cw-status{font-size:11px;color:#d69735;padding:0 10px 4px;min-height:14px;}' +
     '#cw-controls{display:flex;gap:6px;padding:10px;border-top:1px solid #3d2c20;}' +
     '#cw-input{flex:1;padding:8px;border-radius:6px;border:none;font-size:13px;}' +
-    '#cw-mic,#cw-send{padding:8px 10px;border-radius:6px;border:none;background:#d69735;font-weight:bold;cursor:pointer;font-size:13px;}';
+    '#cw-mic,#cw-send{padding:8px 10px;border-radius:6px;border:none;background:#d69735;font-weight:bold;cursor:pointer;font-size:13px;}' +
+    '#cw-mic.cw-mic-active{background:#c0392b;color:#fff;}';
   document.head.appendChild(style);
 
   var bubble = document.createElement('div');
@@ -98,6 +99,22 @@
   function closePanel() { panel.classList.remove('open'); isOpen = false; persist(); }
   bubble.onclick = function () { isOpen ? closePanel() : openPanel(); };
 
+  // Hands-free continuous voice loop (ported from index.html): speak the
+  // reply via speechSynthesis, then auto-restart listening when speech
+  // ends, so a guest can have a full back-and-forth conversation without
+  // tapping the mic again each turn. Typing/clicking Send still works
+  // exactly as before and is unaffected by voiceMode.
+  var synth = window.speechSynthesis;
+  function speak(text, onDone) {
+    if (!synth) { if (onDone) onDone(); return; }
+    synth.cancel();
+    var utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 1;
+    utter.onend = function () { if (onDone) onDone(); };
+    utter.onerror = function () { if (onDone) onDone(); };
+    synth.speak(utter);
+  }
+
   async function send(text) {
     if (!text.trim()) return;
     addMsg(text, 'cw-me');
@@ -116,15 +133,18 @@
     } catch (e) {
       addMsg('Sorry, having trouble connecting right now.', 'cw-ai');
       setStatus('');
+      if (voiceMode) startListening();
       return;
     }
-    if (data.error) { addMsg('Error: ' + data.error, 'cw-ai'); setStatus(''); return; }
+    if (data.error) {
+      addMsg('Error: ' + data.error, 'cw-ai');
+      setStatus('');
+      if (voiceMode) startListening();
+      return;
+    }
     addMsg(data.reply, 'cw-ai');
     addProducts(data.products);
     if (data.products && data.products.length) { lastProducts = data.products; }
-    history.push({ role: 'assistant', content: JSON.stringify({ reply: data.reply, show: (data.products || []).map(function (p) { return p.name; }), action: data.action }) });
-    persist();
-    setStatus('');
     if (data.action === 'confirmed' && lastProducts.length) {
       setStatus("Taking you there — I'll be right here when you get there.");
       var target = lastProducts[0].url;
@@ -133,21 +153,73 @@
       saveState(st);
       setTimeout(function () { window.location.href = target; }, 1800);
     }
+    history.push({ role: 'assistant', content: JSON.stringify({ reply: data.reply, show: (data.products || []).map(function (p) { return p.name; }), action: data.action }) });
+    persist();
+    if (voiceMode) {
+      setStatus('Speaking...');
+      speak(data.reply, function () { if (voiceMode) startListening(); });
+    } else {
+      setStatus('');
+    }
   }
 
   sendBtn.onclick = function () { send(inputEl.value); };
   inputEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') send(inputEl.value); });
 
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var rec = null;
+  var listening = false;
+  var voiceMode = false;
+
+  function makeRecognition() {
+    var r = new SR();
+    r.lang = 'en-US';
+    r.interimResults = false;
+    r.maxAlternatives = 1;
+    r.onresult = function (e) { send(e.results[0][0].transcript); };
+    r.onerror = function () {
+      listening = false;
+      if (voiceMode) {
+        setStatus('Listening error, retrying...');
+        setTimeout(function () { if (voiceMode) startListening(); }, 1200);
+      }
+    };
+    r.onend = function () { listening = false; };
+    return r;
+  }
+
+  function startListening() {
+    if (!SR || listening) return;
+    listening = true;
+    setStatus('Listening...');
+    rec = makeRecognition();
+    try { rec.start(); } catch (e) { listening = false; }
+  }
+
+  function stopVoiceMode() {
+    voiceMode = false;
+    micBtn.textContent = '🎤';
+    micBtn.classList.remove('cw-mic-active');
+    setStatus('');
+    if (synth) synth.cancel();
+    if (rec) { try { rec.abort(); } catch (e) {} }
+    listening = false;
+  }
+
   if (SR) {
     micBtn.onclick = function () {
-      var rec = new SR();
-      rec.lang = 'en-US';
-      rec.onresult = function (e) { send(e.results[0][0].transcript); };
-      try { rec.start(); } catch (e) {}
+      if (!voiceMode) {
+        voiceMode = true;
+        micBtn.textContent = '🔴';
+        micBtn.classList.add('cw-mic-active');
+        startListening();
+      } else {
+        stopVoiceMode();
+      }
     };
   } else {
-    micBtn.style.display = 'none';  }
+    micBtn.style.display = 'none';
+  }
 
   if (history.length) {
     renderHistory();
@@ -167,4 +239,3 @@
     }
   }
 })();
-
