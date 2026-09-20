@@ -1,4 +1,13 @@
 (function () {
+  // This whole site exists only for the concierge app now, so the default
+  // Shopify homepage should never be what people land on - send them
+  // straight to the Welcome page instead. Checking this first, before
+  // building anything else, keeps the redirect as fast as possible.
+  if (window.location.pathname === '/') {
+    window.location.replace('/pages/welcome');
+    return;
+  }
+
   var API = 'https://calico-concierge.onrender.com';
   var STORAGE_KEY = 'calicoConciergeState';
 
@@ -32,7 +41,13 @@
     '#cw-controls{display:flex;gap:6px;padding:10px;border-top:1px solid #3d2c20;}' +
     '#cw-input{flex:1;padding:8px;border-radius:6px;border:none;font-size:13px;}' +
     '#cw-mic,#cw-send{padding:8px 10px;border-radius:6px;border:none;background:#d69735;font-weight:bold;cursor:pointer;font-size:13px;}' +
-    '#cw-mic.cw-mic-active{background:#c0392b;color:#fff;}';
+    '#cw-mic.cw-mic-active{background:#c0392b;color:#fff;}' +
+    // Rich: no online checkout ever happens here (sales are rung up in
+    // person at the park), so the cart icon shouldn't even be visible.
+    // Payments are already fully unconfigured on this store (confirmed in
+    // Shopify Settings > Payments), so this is a visual cleanup, not the
+    // safety net - it just keeps the cart out of sight.
+    'a[href*="/cart"]{display:none!important;}';
   document.head.appendChild(style);
 
   var bubble = document.createElement('div');
