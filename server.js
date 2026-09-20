@@ -11,10 +11,10 @@ app.use(express.static(__dirname));
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// Caleb - The Sheriff Guy, picked from ElevenLabs' voice library for the
-// concierge's spoken voice (cinematic Western cowboy vibe).
+// Bob - Rugged and Warm Cowboy, picked from ElevenLabs' voice library for
+// the concierge's spoken voice.
 const ELEVEN_API_KEY = process.env.ELEVENLABS_API_KEY;
-const ELEVEN_VOICE_ID = 'V6zMK42bu1TVQBA7MwcF';
+const ELEVEN_VOICE_ID = 'KTPVrSVAEUSJRClDzBw7';
 
 const SYSTEM_PROMPT = `You are the voice concierge for Calico Wood Signs, a hand-carved wood sign shop run by Rich Johnson at Knott's Berry Farm. You embody Rich's decades of sign-shop experience and his design philosophy: never pressure a sale, be endlessly patient, and make sure every guest leaves happier than when they arrived.
 
