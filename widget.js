@@ -20,7 +20,8 @@
     '#cw-bubble{position:fixed;bottom:20px;right:20px;width:60px;height:60px;border-radius:50%;background:#d69735;color:#1e1611;display:flex;align-items:center;justify-content:center;font-size:26px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.35);z-index:2147483000;font-family:Georgia,serif;}' +
     '#cw-panel{position:fixed;bottom:90px;right:20px;width:330px;max-height:65vh;background:#1e1611;color:#f2e6d8;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.45);display:none;flex-direction:column;font-family:Georgia,serif;z-index:2147483000;overflow:hidden;border:1px solid #3d2c20;}' +
     '#cw-panel.open{display:flex;}' +
-    '#cw-header{background:#681e17;padding:10px 14px;font-weight:bold;color:#d69735;font-size:14px;}' +
+    '#cw-header{background:#681e17;padding:10px 14px;font-weight:bold;color:#d69735;font-size:14px;display:flex;align-items:center;justify-content:space-between;gap:8px;}' +
+    '#cw-close{background:none;border:none;color:#d69735;font-size:20px;line-height:1;cursor:pointer;padding:0 2px;}' +
     '#cw-messages{flex:1;overflow-y:auto;padding:10px;max-height:320px;}' +
     '.cw-msg{padding:8px 12px;border-radius:10px;margin:6px 0;max-width:85%;font-size:13px;line-height:1.35;}' +
     '.cw-me{background:#3d2c20;margin-left:auto;}' +
@@ -42,7 +43,7 @@
   var panel = document.createElement('div');
   panel.id = 'cw-panel';
   panel.innerHTML =
-    '<div id="cw-header">Calico Wood Signs — Ask Rich</div>' +
+    '<div id="cw-header"><span>Calico Wood Signs — Ask Rich</span><button id="cw-close" aria-label="Close chat">✕</button></div>' +
     '<div id="cw-messages"></div>' +
     '<div id="cw-status"></div>' +
     '<div id="cw-controls">' +
@@ -57,6 +58,7 @@
   var inputEl = panel.querySelector('#cw-input');
   var micBtn = panel.querySelector('#cw-mic');
   var sendBtn = panel.querySelector('#cw-send');
+  var closeBtn = panel.querySelector('#cw-close');
 
   function setStatus(t) { statusEl.textContent = t || ''; }
   function persist() { saveState({ history: history, lastProducts: lastProducts, isOpen: isOpen }); }
@@ -98,6 +100,7 @@
   function openPanel() { panel.classList.add('open'); isOpen = true; persist(); }
   function closePanel() { panel.classList.remove('open'); isOpen = false; persist(); }
   bubble.onclick = function () { isOpen ? closePanel() : openPanel(); };
+  closeBtn.onclick = function () { closePanel(); };
 
   // Hands-free continuous voice loop (ported from index.html): speak the
   // reply, then auto-restart listening when speech ends, so a guest can
@@ -255,18 +258,13 @@
   if (history.length) {
     renderHistory();
     openPanel();
-  if (justArrived) {
+    if (justArrived) {
       addMsg("Here we are! Taking you right into the editor — I'm right here if you want to see something else.", 'cw-ai');
       var cleared = loadState();
       cleared.pendingArrival = false;
       saveState(cleared);
-      var wizTries = 0;
-      var wizTimer = setInterval(function () {
-        wizTries++;
-        var wizBtn = document.getElementById('customily-personalize-button') || document.querySelector('.customily-personalize-button');
-        if (wizBtn) { clearInterval(wizTimer); wizBtn.click(); }
-        else if (wizTries > 20) { clearInterval(wizTimer); }
-      }, 300);
     }
   }
+  // Note: the personalize editor now auto-opens via a Customily setting
+  // (not this script), so no click-the-button polling is needed here.
 })();
