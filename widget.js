@@ -100,19 +100,35 @@
   bubble.onclick = function () { isOpen ? closePanel() : openPanel(); };
 
   // Hands-free continuous voice loop (ported from index.html): speak the
-  // reply via speechSynthesis, then auto-restart listening when speech
-  // ends, so a guest can have a full back-and-forth conversation without
-  // tapping the mic again each turn. Typing/clicking Send still works
-  // exactly as before and is unaffected by voiceMode.
-  var synth = window.speechSynthesis;
+  // reply, then auto-restart listening when speech ends, so a guest can
+  // have a full back-and-forth conversation without tapping the mic again
+  // each turn. Typing/clicking Send still works exactly as before and is
+  // unaffected by voiceMode.
+  //
+  // Speech-out goes through the server's /tts endpoint (Caleb - The
+  // Sheriff Guy, an ElevenLabs voice) instead of the browser's default
+  // speechSynthesis voice. If that ever fails (offline, quota, etc.) it
+  // just calls onDone so the loop keeps going instead of getting stuck.
+  var currentAudio = null;
   function speak(text, onDone) {
-    if (!synth) { if (onDone) onDone(); return; }
-    synth.cancel();
-    var utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 1;
-    utter.onend = function () { if (onDone) onDone(); };
-    utter.onerror = function () { if (onDone) onDone(); };
-    synth.speak(utter);
+    if (currentAudio) { try { currentAudio.pause(); } catch (e) {} currentAudio = null; }
+    fetch(API + '/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text })
+    }).then(function (res) {
+      if (!res.ok) throw new Error('tts failed');
+      return res.blob();
+    }).then(function (blob) {
+      var url = URL.createObjectURL(blob);
+      var audio = new Audio(url);
+      currentAudio = audio;
+      audio.onended = function () { URL.revokeObjectURL(url); if (currentAudio === audio) currentAudio = null; if (onDone) onDone(); };
+      audio.onerror = function () { URL.revokeObjectURL(url); if (currentAudio === audio) currentAudio = null; if (onDone) onDone(); };
+      audio.play().catch(function () { if (onDone) onDone(); });
+    }).catch(function () {
+      if (onDone) onDone();
+    });
   }
 
   async function send(text) {
@@ -201,7 +217,7 @@
     micBtn.textContent = '🎤';
     micBtn.classList.remove('cw-mic-active');
     setStatus('');
-    if (synth) synth.cancel();
+    if (currentAudio) { try { currentAudio.pause(); } catch (e) {} currentAudio = null; }
     if (rec) { try { rec.abort(); } catch (e) {} }
     listening = false;
   }
