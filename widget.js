@@ -141,6 +141,7 @@
 
   async function send(text) {
     if (!text.trim()) return;
+    processing = true;
     // On a product page, the Customily voice wizard exposes its own
     // command handler so Sheriff Rourke's ONE box (typed OR mic) drives
     // the option-picking directly - no separate button, no talking about
@@ -152,6 +153,7 @@
       inputEl.value = '';
       window.__wizHandleVoiceCommand(text);
       setStatus('');
+      processing = false;
       if (voiceMode) { setTimeout(function () { if (voiceMode) startListening(); }, 400); }
       return;
     }
@@ -171,12 +173,14 @@
     } catch (e) {
       addMsg('Sorry, having trouble connecting right now.', 'cw-ai');
       setStatus('');
+      processing = false;
       if (voiceMode) startListening();
       return;
     }
     if (data.error) {
       addMsg('Error: ' + data.error, 'cw-ai');
       setStatus('');
+      processing = false;
       if (voiceMode) startListening();
       return;
     }
@@ -195,8 +199,9 @@
     persist();
     if (voiceMode) {
       setStatus('Speaking...');
-      speak(data.reply, function () { if (voiceMode) startListening(); });
+      speak(data.reply, function () { processing = false; if (voiceMode) startListening(); });
     } else {
+      processing = false;
       setStatus('');
     }
   }
@@ -209,6 +214,15 @@
   var listening = false;
   var voiceMode = false;
   var sheriffRourke = null;
+  // True from the moment a heard/typed phrase starts being handled until
+  // Sheriff Rourke is fully done with it (chat reply + speech, or the
+  // wizard command). Browsers silently end SpeechRecognition after a few
+  // seconds of normal mid-sentence silence - onend used to just stop
+  // listening for good right there, which is exactly what forced typing
+  // instead of talking. Now onend restarts listening itself whenever
+  // we're just sitting idle (not mid-response), so a pause doesn't kill
+  // hands-free mode.
+  var processing = false;
 
   function ensureSheriffRourke() {
     if (sheriffRourke || !window.SheriffRourkeAvatar) return;
@@ -246,7 +260,14 @@
         setTimeout(function () { if (voiceMode) startListening(); }, 1200);
       }
     };
-    r.onend = function () { listening = false; };
+    r.onend = function () {
+      listening = false;
+      // Recognition ended on its own (silence timeout, not an error and
+      // not because we already have a result to handle) - if hands-free
+      // mode is still on and nothing is being processed, just start
+      // listening again instead of leaving the guest hanging.
+      if (voiceMode && !processing) { startListening(); }
+    };
     return r;
   }
 
