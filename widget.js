@@ -141,6 +141,20 @@
 
   async function send(text) {
     if (!text.trim()) return;
+    // On a product page, the Customily voice wizard exposes its own
+    // command handler so Sheriff Rourke's ONE box (typed OR mic) drives
+    // the option-picking directly - no separate button, no talking about
+    // the change instead of making it. Checked here, in the one place
+    // both the Send button/Enter key and the mic's recognized speech
+    // funnel through, so neither path can bypass it.
+    if (window.__wizHandleVoiceCommand) {
+      addMsg(text, 'cw-me');
+      inputEl.value = '';
+      window.__wizHandleVoiceCommand(text);
+      setStatus('');
+      if (voiceMode) { setTimeout(function () { if (voiceMode) startListening(); }, 400); }
+      return;
+    }
     addMsg(text, 'cw-me');
     inputEl.value = '';
     history.push({ role: 'user', content: text });
@@ -220,21 +234,10 @@
     r.interimResults = false;
     r.maxAlternatives = 1;
     r.onresult = function (e) {
-      var transcript = e.results[0][0].transcript;
-      // On a product page, the Customily voice wizard (step-wizard v3.1)
-      // exposes its own command handler so Sheriff Rourke's ONE mic can
-      // drive both the chat AND the option-picking - no second "tap to
-      // talk" button, no page refresh loop. If it's present, this is the
-      // whole conversation on this page: hand it straight to the wizard
-      // instead of the normal chat round-trip, then keep hands-free voice
-      // mode listening (the wizard has no reply/TTS step of its own).
-      if (window.__wizHandleVoiceCommand) {
-        addMsg(transcript, 'cw-me');
-        window.__wizHandleVoiceCommand(transcript);
-        if (voiceMode) { setTimeout(function () { if (voiceMode) startListening(); }, 400); }
-        return;
-      }
-      send(transcript);
+      // Routing (chat vs. the product-page voice wizard) all happens
+      // inside send() now, so both the mic and the typed Send button go
+      // through the exact same decision - see send().
+      send(e.results[0][0].transcript);
     };
     r.onerror = function () {
       listening = false;
@@ -297,3 +300,4 @@
     }
   }
 })();
+
