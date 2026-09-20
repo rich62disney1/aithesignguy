@@ -11,6 +11,11 @@ app.use(express.static(__dirname));
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// Caleb - The Sheriff Guy, picked from ElevenLabs' voice library for the
+// concierge's spoken voice (cinematic Western cowboy vibe).
+const ELEVEN_API_KEY = process.env.ELEVENLABS_API_KEY;
+const ELEVEN_VOICE_ID = 'V6zMK42bu1TVQBA7MwcF';
+
 const SYSTEM_PROMPT = `You are the voice concierge for Calico Wood Signs, a hand-carved wood sign shop run by Rich Johnson at Knott's Berry Farm. You embody Rich's decades of sign-shop experience and his design philosophy: never pressure a sale, be endlessly patient, and make sure every guest leaves happier than when they arrived.
 
 Your job in this conversation:
@@ -69,6 +74,48 @@ app.post('/chat', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Something went wrong talking to the concierge.' });
+  }
+});
+
+// Text-to-speech, proxied through the server so the ElevenLabs key never
+// reaches the browser. Used by widget.js's hands-free voice loop to speak
+// replies in Caleb's voice instead of the browser's default TTS voice.
+app.post('/tts', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ error: 'text is required' });
+    }
+    if (!ELEVEN_API_KEY) {
+      return res.status(503).json({ error: 'Voice not configured' });
+    }
+
+    const elevenRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE_ID}`, {
+      method: 'POST',
+      headers: {
+        'xi-api-key': ELEVEN_API_KEY,
+        'Content-Type': 'application/json',
+        'Accept': 'audio/mpeg'
+      },
+      body: JSON.stringify({
+        text,
+        model_id: 'eleven_turbo_v2_5',
+        voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+      })
+    });
+
+    if (!elevenRes.ok) {
+      const errText = await elevenRes.text();
+      console.error('ElevenLabs TTS error:', elevenRes.status, errText);
+      return res.status(502).json({ error: 'Voice service error' });
+    }
+
+    const buffer = Buffer.from(await elevenRes.arrayBuffer());
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.send(buffer);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Voice generation failed' });
   }
 });
 
