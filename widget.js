@@ -121,6 +121,17 @@
   bubble.onclick = function () { isOpen ? closePanel() : openPanel(); };
   closeBtn.onclick = function () { closePanel(); };
 
+  // On a product page, the sign itself gets the screen, not this panel -
+  // the pulsing dot is enough to show Sheriff Rourke is there and working.
+  // Only used on product pages (window.__wizHandleVoiceCommand present);
+  // never touches the normal full-screen chat experience elsewhere.
+  var tuckTimer = null;
+  function tuckPanelAway() {
+    bubble.classList.add('cw-bubble-listening');
+    if (tuckTimer) clearTimeout(tuckTimer);
+    tuckTimer = setTimeout(function () { closePanel(); }, 1200);
+  }
+
   var audioEl = new Audio();
   function speak(text, onDone) {
     fetch(API + '/tts', {
@@ -156,6 +167,11 @@
       window.__wizHandleVoiceCommand(text);
       setStatus('');
       processing = false;
+      // The product itself gets the screen, not the chat panel - as soon
+      // as a command (typed OR spoken) reaches the wizard, tuck the panel
+      // away and leave just the pulsing dot so the guest can watch the
+      // sign actually change.
+      tuckPanelAway();
       if (voiceMode) { setTimeout(function () { if (voiceMode) startListening(); }, 400); }
       return;
     }
@@ -311,10 +327,7 @@
         // the tap itself still feels responsive) and leave only a small
         // pulsing dot to show he's listening and working. Tapping that
         // dot brings the full panel straight back.
-        if (window.__wizHandleVoiceCommand) {
-          bubble.classList.add('cw-bubble-listening');
-          setTimeout(function () { if (voiceMode) closePanel(); }, 600);
-        }
+        if (window.__wizHandleVoiceCommand) { tuckPanelAway(); }
       } else {
         stopVoiceMode();
       }
@@ -331,6 +344,10 @@
       var cleared = loadState();
       cleared.pendingArrival = false;
       saveState(cleared);
+      // Same rule on arrival as everywhere else on this page: let the
+      // guest read the welcome-back message, then get the panel out of
+      // the way of the actual sign so there's something to look at.
+      if (window.__wizHandleVoiceCommand) { tuckPanelAway(); }
     }
   }
 })();
