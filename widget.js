@@ -235,6 +235,15 @@
     listening = false;
   }
 
+  // If the tab gets backgrounded (phone locked, switched apps, etc.) while
+  // hands-free voice mode is on, the mic can keep listening in a throttled
+  // background tab and pick up stray ambient audio, then take a long time
+  // to respond once the tab is foregrounded again. Just stop voice mode
+  // when the page goes to the background so it never listens unattended.
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden && voiceMode) stopVoiceMode();
+  });
+
   if (SR) {
     micBtn.onclick = function () {
       if (!voiceMode) {
