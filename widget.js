@@ -219,7 +219,23 @@
     r.lang = 'en-US';
     r.interimResults = false;
     r.maxAlternatives = 1;
-    r.onresult = function (e) { send(e.results[0][0].transcript); };
+    r.onresult = function (e) {
+      var transcript = e.results[0][0].transcript;
+      // On a product page, the Customily voice wizard (step-wizard v3.1)
+      // exposes its own command handler so Sheriff Rourke's ONE mic can
+      // drive both the chat AND the option-picking - no second "tap to
+      // talk" button, no page refresh loop. If it's present, this is the
+      // whole conversation on this page: hand it straight to the wizard
+      // instead of the normal chat round-trip, then keep hands-free voice
+      // mode listening (the wizard has no reply/TTS step of its own).
+      if (window.__wizHandleVoiceCommand) {
+        addMsg(transcript, 'cw-me');
+        window.__wizHandleVoiceCommand(transcript);
+        if (voiceMode) { setTimeout(function () { if (voiceMode) startListening(); }, 400); }
+        return;
+      }
+      send(transcript);
+    };
     r.onerror = function () {
       listening = false;
       if (voiceMode) {
@@ -281,4 +297,3 @@
     }
   }
 })();
-
