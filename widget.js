@@ -39,7 +39,9 @@
     '#cw-input{flex:1;padding:8px;border-radius:6px;border:none;font-size:13px;}' +
     '#cw-mic,#cw-send{padding:8px 10px;border-radius:6px;border:none;background:#d69735;font-weight:bold;cursor:pointer;font-size:13px;}' +
     '#cw-mic.cw-mic-active{background:#c0392b;color:#fff;}' +
-    'a[href*="/cart"]{display:none!important;}';
+    'a[href*="/cart"]{display:none!important;}' +
+    '@keyframes cw-pulse{0%{box-shadow:0 4px 12px rgba(0,0,0,.35),0 0 0 0 rgba(192,57,43,.55);}70%{box-shadow:0 4px 12px rgba(0,0,0,.35),0 0 0 14px rgba(192,57,43,0);}100%{box-shadow:0 4px 12px rgba(0,0,0,.35),0 0 0 0 rgba(192,57,43,0);}}' +
+    '#cw-bubble.cw-bubble-listening{animation:cw-pulse 1.6s ease-out infinite;background:#c0392b;}';
   document.head.appendChild(style);
 
   var AVATAR_BASE = API + '/avatar';
@@ -283,6 +285,7 @@
     voiceMode = false;
     micBtn.textContent = '🎤';
     micBtn.classList.remove('cw-mic-active');
+    bubble.classList.remove('cw-bubble-listening');
     setStatus('');
     try { audioEl.pause(); } catch (e) {}
     if (rec) { try { rec.abort(); } catch (e) {} }
@@ -302,6 +305,16 @@
         try { audioEl.play().catch(function () {}); audioEl.pause(); } catch (e) {}
         ensureSheriffRourke();
         startListening();
+        // On the product page, Sheriff Rourke's job is to change the sign
+        // while the guest WATCHES it change - the chat panel just gets in
+        // the way of that. Tuck it away a beat after tapping the mic (so
+        // the tap itself still feels responsive) and leave only a small
+        // pulsing dot to show he's listening and working. Tapping that
+        // dot brings the full panel straight back.
+        if (window.__wizHandleVoiceCommand) {
+          bubble.classList.add('cw-bubble-listening');
+          setTimeout(function () { if (voiceMode) closePanel(); }, 600);
+        }
       } else {
         stopVoiceMode();
       }
