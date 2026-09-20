@@ -348,7 +348,17 @@
       // guest read the welcome-back message, then get the panel out of
       // the way of the actual sign so there's something to look at.
       if (window.__wizHandleVoiceCommand) { tuckPanelAway(); }
+      // Sheriff Rourke was already talking to the guest before this page
+      // even loaded - there's no click to make here. Resume listening
+      // automatically so "pick a design" flows straight into "start
+      // customizing it" with zero taps.
+      if (SR && !voiceMode) {
+        voiceMode = true;
+        micBtn.textContent = '🔴';
+        micBtn.classList.add('cw-mic-active');
+        ensureSheriffRourke();
+        setTimeout(function () { if (voiceMode) startListening(); }, 1500);
+      }
     }
   }
 })();
-
