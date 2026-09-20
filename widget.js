@@ -1,8 +1,4 @@
 (function () {
-  // This whole site exists only for the concierge app now, so the default
-  // Shopify homepage should never be what people land on - send them
-  // straight to the Welcome page instead. Checking this first, before
-  // building anything else, keeps the redirect as fast as possible.
   if (window.location.pathname === '/') {
     window.location.replace('/pages/welcome');
     return;
@@ -29,6 +25,7 @@
     '#cw-bubble{position:fixed;bottom:20px;right:20px;width:60px;height:60px;border-radius:50%;background:#d69735;color:#1e1611;display:flex;align-items:center;justify-content:center;font-size:26px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.35);z-index:2147483000;font-family:Georgia,serif;}' +
     '#cw-panel{position:fixed;bottom:90px;right:20px;width:330px;max-height:65vh;background:#1e1611;color:#f2e6d8;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.45);display:none;flex-direction:column;font-family:Georgia,serif;z-index:2147483000;overflow:hidden;border:1px solid #3d2c20;}' +
     '#cw-panel.open{display:flex;}' +
+    '#cw-sheriff-rourke{width:100%;flex-shrink:0;background:#000;}' +
     '#cw-header{background:#681e17;padding:10px 14px;font-weight:bold;color:#d69735;font-size:14px;display:flex;align-items:center;justify-content:space-between;gap:8px;}' +
     '#cw-close{background:none;border:none;color:#d69735;font-size:20px;line-height:1;cursor:pointer;padding:0 2px;}' +
     '#cw-messages{flex:1;overflow-y:auto;padding:10px;max-height:320px;}' +
@@ -42,13 +39,17 @@
     '#cw-input{flex:1;padding:8px;border-radius:6px;border:none;font-size:13px;}' +
     '#cw-mic,#cw-send{padding:8px 10px;border-radius:6px;border:none;background:#d69735;font-weight:bold;cursor:pointer;font-size:13px;}' +
     '#cw-mic.cw-mic-active{background:#c0392b;color:#fff;}' +
-    // Rich: no online checkout ever happens here (sales are rung up in
-    // person at the park), so the cart icon shouldn't even be visible.
-    // Payments are already fully unconfigured on this store (confirmed in
-    // Shopify Settings > Payments), so this is a visual cleanup, not the
-    // safety net - it just keeps the cart out of sight.
     'a[href*="/cart"]{display:none!important;}';
   document.head.appendChild(style);
+
+  var AVATAR_BASE = API + '/avatar';
+  var avatarLink = document.createElement('link');
+  avatarLink.rel = 'stylesheet';
+  avatarLink.href = AVATAR_BASE + '/sheriff-rourke-avatar.css';
+  document.head.appendChild(avatarLink);
+  var avatarScript = document.createElement('script');
+  avatarScript.src = AVATAR_BASE + '/sheriff-rourke-avatar.js';
+  document.head.appendChild(avatarScript);
 
   var bubble = document.createElement('div');
   bubble.id = 'cw-bubble';
@@ -58,6 +59,7 @@
   var panel = document.createElement('div');
   panel.id = 'cw-panel';
   panel.innerHTML =
+    '<div id="cw-sheriff-rourke" class="sr-avatar" aria-label="Sheriff Rourke"></div>' +
     '<div id="cw-header"><span>Calico Wood Signs — Ask Rich</span><button id="cw-close" aria-label="Close chat">✕</button></div>' +
     '<div id="cw-messages"></div>' +
     '<div id="cw-status"></div>' +
@@ -117,28 +119,6 @@
   bubble.onclick = function () { isOpen ? closePanel() : openPanel(); };
   closeBtn.onclick = function () { closePanel(); };
 
-  // Hands-free continuous voice loop (ported from index.html): speak the
-  // reply, then auto-restart listening when speech ends, so a guest can
-  // have a full back-and-forth conversation without tapping the mic again
-  // each turn. Typing/clicking Send still works exactly as before and is
-  // unaffected by voiceMode.
-  //
-  // Speech-out goes through the server's /tts endpoint (an ElevenLabs
-  // voice) instead of the browser's default speechSynthesis voice. If
-  // that ever fails (offline, quota, etc.) it just calls onDone so the
-  // loop keeps going instead of getting stuck.
-  //
-  // IMPORTANT (Safari/iOS): a brand-new `new Audio()` created outside a
-  // direct tap only gets to autoplay once before Safari starts silently
-  // blocking it - later turns in the loop are triggered by speech
-  // recognition results, not a fresh tap, so a fresh Audio element each
-  // time plays once then goes silent forever after (this is exactly what
-  // Rich saw: first reply spoke, every one after that printed but made no
-  // sound). Fix: reuse ONE Audio element for the whole session, and
-  // "unlock" it with a muted play+pause directly inside the mic tap's own
-  // click handler (see micBtn.onclick below) - once an element has played
-  // during a real user gesture, Safari keeps letting that same element
-  // play again later without another tap.
   var audioEl = new Audio();
   function speak(text, onDone) {
     fetch(API + '/tts', {
@@ -214,6 +194,25 @@
   var rec = null;
   var listening = false;
   var voiceMode = false;
+  var sheriffRourke = null;
+
+  function ensureSheriffRourke() {
+    if (sheriffRourke || !window.SheriffRourkeAvatar) return;
+    var avatarEl = panel.querySelector('#cw-sheriff-rourke');
+    if (!avatarEl) return;
+    sheriffRourke = new window.SheriffRourkeAvatar(avatarEl, {
+      rest: AVATAR_BASE + '/rourke-real-smile-rest-transparent-v2.webp',
+      ah: AVATAR_BASE + '/rourke-real-smile-ah-transparent-v2.webp',
+      oo: AVATAR_BASE + '/rourke-real-smile-oo-transparent-v2.webp',
+      ee: AVATAR_BASE + '/rourke-real-smile-ee-transparent-v2.webp',
+      mbp: AVATAR_BASE + '/rourke-real-smile-mbp-transparent-v2.webp',
+      fv: AVATAR_BASE + '/rourke-real-smile-fv-transparent-v2.webp',
+      th: AVATAR_BASE + '/rourke-real-smile-th-transparent-v2.webp',
+      l: AVATAR_BASE + '/rourke-real-smile-l-transparent-v2.webp',
+      blink: AVATAR_BASE + '/rourke-real-smile-blink-transparent-v2.webp'
+    });
+    sheriffRourke.attachAudio(audioEl);
+  }
 
   function makeRecognition() {
     var r = new SR();
@@ -250,11 +249,6 @@
     listening = false;
   }
 
-  // If the tab gets backgrounded (phone locked, switched apps, etc.) while
-  // hands-free voice mode is on, the mic can keep listening in a throttled
-  // background tab and pick up stray ambient audio, then take a long time
-  // to respond once the tab is foregrounded again. Just stop voice mode
-  // when the page goes to the background so it never listens unattended.
   document.addEventListener('visibilitychange', function () {
     if (document.hidden && voiceMode) stopVoiceMode();
   });
@@ -265,11 +259,8 @@
         voiceMode = true;
         micBtn.textContent = '🔴';
         micBtn.classList.add('cw-mic-active');
-        // Safari/iOS audio unlock: a silent play+pause done synchronously
-        // inside this real tap grants audioEl permission to autoplay
-        // later (triggered by speech results, not another tap) for the
-        // rest of the hands-free loop.
         try { audioEl.play().catch(function () {}); audioEl.pause(); } catch (e) {}
+        ensureSheriffRourke();
         startListening();
       } else {
         stopVoiceMode();
@@ -289,6 +280,5 @@
       saveState(cleared);
     }
   }
-  // Note: the personalize editor now auto-opens via a Customily setting
-  // (not this script), so no click-the-button polling is needed here.
 })();
+
