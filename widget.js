@@ -80,7 +80,18 @@
   var closeBtn = panel.querySelector('#cw-close');
 
   function setStatus(t) { statusEl.textContent = t || ''; }
-  function persist() { saveState({ history: history, lastProducts: lastProducts, isOpen: isOpen }); }
+  function persist() {
+    // Do not discard a cross-page arrival while the product page is still
+    // assembling its Customily editor. It is cleared only after the browser
+    // confirms that Sheriff's microphone has actually started.
+    var existing = loadState();
+    saveState({
+      history: history,
+      lastProducts: lastProducts,
+      isOpen: isOpen,
+      pendingArrival: !!existing.pendingArrival
+    });
+  }
 
   function addMsg(text, cls) {
     var d = document.createElement('div');
@@ -231,6 +242,7 @@
   var rec = null;
   var listening = false;
   var voiceMode = false;
+  var awaitingArrivalMic = justArrived;
   var sheriffRourke = null;
   // True from the moment a heard/typed phrase starts being handled until
   // Sheriff Rourke is fully done with it (chat reply + speech, or the
@@ -265,6 +277,18 @@
     r.lang = 'en-US';
     r.interimResults = false;
     r.maxAlternatives = 1;
+    r.onstart = function () {
+      listening = true;
+      // This is the success point: leave the arrival marker in place until
+      // the browser has really opened the microphone, not merely until a
+      // timer has elapsed.
+      if (awaitingArrivalMic) {
+        var current = loadState();
+        current.pendingArrival = false;
+        saveState(current);
+        awaitingArrivalMic = false;
+      }
+    };
     r.onresult = function (e) {
       // Routing (chat vs. the product-page voice wizard) all happens
       // inside send() now, so both the mic and the typed Send button go
@@ -298,6 +322,33 @@
     setStatus('Listening...');
     rec = makeRecognition();
     try { rec.start(); } catch (e) { listening = false; }
+  }
+
+  function customilyEditorReady() {
+    return !!document.querySelector('.customily-modal-container, #cl_optionsapp .customily_option');
+  }
+
+  function resumeSheriffAfterEditorReady() {
+    if (!awaitingArrivalMic || !SR) return;
+    function begin() {
+      voiceMode = true;
+      micBtn.textContent = '🔴';
+      micBtn.classList.add('cw-mic-active');
+      ensureSheriffRourke();
+      startListening();
+    }
+    if (customilyEditorReady()) { begin(); return; }
+    // Customily adds its panel asynchronously. Watch for that exact event
+    // for up to one minute; this is not a microphone restart loop.
+    var observer = new MutationObserver(function () {
+      if (customilyEditorReady()) {
+        observer.disconnect();
+        clearTimeout(expire);
+        begin();
+      }
+    });
+    var expire = setTimeout(function () { observer.disconnect(); }, 60000);
+    observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 
   function stopVoiceMode() {
@@ -355,9 +406,6 @@
     renderHistory();
     openPanel();
     if (justArrived) {
-      var cleared = loadState();
-      cleared.pendingArrival = false;
-      saveState(cleared);
       // Same rule on arrival as everywhere else on this page: let the
       // guest read the welcome-back message, then get the panel out of
       // the way of the actual sign so there's something to look at.
@@ -366,13 +414,7 @@
       // even loaded - there's no click to make here. Resume listening
       // automatically so "pick a design" flows straight into "start
       // customizing it" with zero taps.
-      if (SR && !voiceMode) {
-        voiceMode = true;
-        micBtn.textContent = '🔴';
-        micBtn.classList.add('cw-mic-active');
-        ensureSheriffRourke();
-        setTimeout(function () { if (voiceMode) startListening(); }, 1500);
-      }
+      resumeSheriffAfterEditorReady();
     }
   }
 })();
