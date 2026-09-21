@@ -280,7 +280,14 @@
     };
     r.onend = function () {
       listening = false;
-      if (voiceMode && !processing) { startListening(); }
+      // A throttle here, not an instant restart - if the browser ends
+      // recognition immediately after starting it (a mic-access hiccup),
+      // an instant restart just re-triggers the same instant end again,
+      // spinning as fast as the event loop allows. This caps it to a
+      // couple of tries a second instead of a runaway loop.
+      if (voiceMode && !processing) {
+        setTimeout(function () { if (voiceMode && !processing && !listening) startListening(); }, 400);
+      }
     };
     return r;
   }
@@ -355,6 +362,17 @@
       // guest read the welcome-back message, then get the panel out of
       // the way of the actual sign so there's something to look at.
       if (window.__wizHandleVoiceCommand) { tuckPanelAway(); }
+      // Sheriff Rourke was already talking to the guest before this page
+      // even loaded - there's no click to make here. Resume listening
+      // automatically so "pick a design" flows straight into "start
+      // customizing it" with zero taps.
+      if (SR && !voiceMode) {
+        voiceMode = true;
+        micBtn.textContent = '🔴';
+        micBtn.classList.add('cw-mic-active');
+        ensureSheriffRourke();
+        setTimeout(function () { if (voiceMode) startListening(); }, 1500);
+      }
     }
   }
 })();
