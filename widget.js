@@ -280,7 +280,7 @@
     };
     r.onend = function () {
       listening = false;
-      if (voiceMode && !processing) stopVoiceMode();
+      if (voiceMode && !processing) { startListening(); }
     };
     return r;
   }
