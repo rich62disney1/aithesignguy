@@ -62,7 +62,7 @@ app.post('/chat', async (req, res) => {
       parsed = { reply: text, show: [], action: 'browsing' };
     }
 
-    const showWithImages = (parsed.show || [])
+    if (parsed.action === 'confirmed') {      parsed.reply = 'Great choice.';    }    const showWithImages = (parsed.show || [])
       .map(name => catalog.find(p => p.name === name))
       .filter(Boolean);
 
