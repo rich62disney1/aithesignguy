@@ -145,7 +145,7 @@
 
   var audioEl = new Audio();
   var speechGeneration = 0;
-  function speak(text, onDone) {
+  function speak(text, onDone, onStart) {
     var generation = ++speechGeneration;
     function done() { if (generation === speechGeneration && onDone) onDone(); }
     fetch(API + '/tts', {
@@ -160,6 +160,7 @@
       var url = URL.createObjectURL(blob);
       audioEl.onended = function () { URL.revokeObjectURL(url); done(); };
       audioEl.onerror = function () { URL.revokeObjectURL(url); done(); };
+      audioEl.onplaying = function () { if (generation === speechGeneration && onStart) { var start = onStart; onStart = null; start(); } };
       audioEl.src = url;
       audioEl.play().catch(function () { done(); });
     }).catch(function () {
@@ -249,6 +250,7 @@
   var voiceMode = false;
   var awaitingArrivalMic = justArrived;
   var arrivalIntroInProgress = false;
+  var arrivalExample = null;
   var cancelArrivalWait = null;
   var sheriffRourke = null;
   // True from the moment a heard/typed phrase starts being handled until
@@ -362,22 +364,31 @@
     if (/\b(edge|border)\b/.test(names)) choices.push('the edge');
     if (/\b(colou?r)\b/.test(names)) choices.push('the color');
     if (/\b(image|picture|artwork)\b/.test(names)) choices.push('the pictures');
-    var also = choices.length ? ' We can also change ' + choices.join(', ').replace(/, ([^,]*)$/, ' and $1') + ', whatever you like.' : '';
-    return "Okay, now let's change what you want to say." + also + " What would you like to do first? To change the text, just say, make it say Robert's room.";
+    return choices.length ? 'You can change ' + choices.join(', ').replace(/, ([^,]*)$/, ' and $1') + ' by talking, too.' : 'You can change the words just by talking.';
   }
 
   function speakProductArrival() {
     if (arrivalIntroInProgress || !voiceMode) return;
     arrivalIntroInProgress = true;
     processing = true;
-    var greeting = productArrivalGreeting();
-    addMsg(greeting, 'cw-ai');
+    arrivalExample = window.__wizCreateSpeechExample ? window.__wizCreateSpeechExample() : null;
+    var intro = "Hey, it's super easy. Here's an example.";
+    var example = arrivalExample ? 'Make it say ' + arrivalExample.text + '.' : '';
+    var after = productArrivalGreeting();
+    addMsg(intro + ' ' + example + ' ' + after, 'cw-ai');
     setStatus('Speaking...');
-    speak(greeting, function () {
+    function finish() {
       if (!arrivalIntroInProgress) return;
       arrivalIntroInProgress = false;
       processing = false;
       if (voiceMode) startListening();
+    }
+    speak(intro, function () {
+      if (!arrivalIntroInProgress || !voiceMode) return;
+      if (!example) { speak(after, finish); return; }
+      speak(example + ' ' + after, finish, function () {
+        if (arrivalIntroInProgress && voiceMode && arrivalExample) arrivalExample.show();
+      });
     });
   }
 
@@ -409,6 +420,7 @@
   function stopVoiceMode() {
     voiceMode = false;
     if (cancelArrivalWait) cancelArrivalWait();
+    if (arrivalExample) { arrivalExample.clear(); arrivalExample = null; }
     if (arrivalIntroInProgress) { speechGeneration++; arrivalIntroInProgress = false; processing = false; }
     micBtn.textContent = '🎤';
     micBtn.classList.remove('cw-mic-active');
