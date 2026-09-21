@@ -207,7 +207,7 @@
     if (data.products && data.products.length) { lastProducts = data.products; }
     if (data.action === 'confirmed' && lastProducts.length) {
       setStatus('Opening your sign...');
-      var target = lastProducts[0].url;
+      var target = lastProducts[0].url + (lastProducts[0].url.indexOf('?') === -1 ? '?' : '&') + 'voice=start';
       var st = loadState();
       st.pendingArrival = true;
       saveState(st);
