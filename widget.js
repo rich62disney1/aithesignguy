@@ -144,7 +144,10 @@
   }
 
   var audioEl = new Audio();
+  var speechGeneration = 0;
   function speak(text, onDone) {
+    var generation = ++speechGeneration;
+    function done() { if (generation === speechGeneration && onDone) onDone(); }
     fetch(API + '/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -153,13 +156,14 @@
       if (!res.ok) throw new Error('tts failed');
       return res.blob();
     }).then(function (blob) {
+      if (generation !== speechGeneration) return;
       var url = URL.createObjectURL(blob);
-      audioEl.onended = function () { URL.revokeObjectURL(url); if (onDone) onDone(); };
-      audioEl.onerror = function () { URL.revokeObjectURL(url); if (onDone) onDone(); };
+      audioEl.onended = function () { URL.revokeObjectURL(url); done(); };
+      audioEl.onerror = function () { URL.revokeObjectURL(url); done(); };
       audioEl.src = url;
-      audioEl.play().catch(function () { if (onDone) onDone(); });
+      audioEl.play().catch(function () { done(); });
     }).catch(function () {
-      if (onDone) onDone();
+      done();
     });
   }
 
@@ -183,7 +187,7 @@
       // away and leave just the pulsing dot so the guest can watch the
       // sign actually change.
       tuckPanelAway();
-      if (voiceMode) { setTimeout(function () { if (voiceMode) startListening(); }, 400); }
+      if (voiceMode) scheduleListening(400);
       return;
     }
     addMsg(text, 'cw-me');
@@ -240,9 +244,12 @@
 
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   var rec = null;
+  var recognitionRestartTimer = null;
   var listening = false;
   var voiceMode = false;
   var awaitingArrivalMic = justArrived;
+  var arrivalIntroInProgress = false;
+  var cancelArrivalWait = null;
   var sheriffRourke = null;
   // True from the moment a heard/typed phrase starts being handled until
   // Sheriff Rourke is fully done with it (chat reply + speech, or the
@@ -278,6 +285,7 @@
     r.interimResults = false;
     r.maxAlternatives = 1;
     r.onstart = function () {
+      if (rec !== r || !voiceMode) { try { r.abort(); } catch (e) {} return; }
       listening = true;
       // This is the success point: leave the arrival marker in place until
       // the browser has really opened the microphone, not merely until a
@@ -290,52 +298,98 @@
       }
     };
     r.onresult = function (e) {
+      if (rec !== r || !voiceMode || processing) return;
       // Routing (chat vs. the product-page voice wizard) all happens
       // inside send() now, so both the mic and the typed Send button go
       // through the exact same decision - see send().
       send(e.results[0][0].transcript);
     };
-    r.onerror = function () {
-      listening = false;
-      if (voiceMode) {
-        setStatus('Listening error, retrying...');
-        setTimeout(function () { if (voiceMode) startListening(); }, 1200);
+    var restartDelay = 400;
+    r.onerror = function (event) {
+      if (rec !== r || !voiceMode) return;
+      if (event && ['not-allowed', 'service-not-allowed', 'audio-capture'].indexOf(event.error) !== -1) {
+        stopVoiceMode();
+        setStatus('Microphone unavailable. Check microphone access, then tap to talk.');
+        return;
       }
+      restartDelay = 1200;
+      setStatus('Reconnecting microphone...');
     };
     r.onend = function () {
+      if (rec !== r) return;
+      rec = null;
       listening = false;
-      // A throttle here, not an instant restart - if the browser ends
-      // recognition immediately after starting it (a mic-access hiccup),
-      // an instant restart just re-triggers the same instant end again,
-      // spinning as fast as the event loop allows. This caps it to a
-      // couple of tries a second instead of a runaway loop.
-      if (voiceMode && !processing) {
-        setTimeout(function () { if (voiceMode && !processing && !listening) startListening(); }, 400);
-      }
+      if (voiceMode && !processing) scheduleListening(restartDelay);
     };
     return r;
   }
 
+  function scheduleListening(delay) {
+    clearTimeout(recognitionRestartTimer);
+    recognitionRestartTimer = null;
+    if (!voiceMode || processing || rec) return;
+    recognitionRestartTimer = setTimeout(function () {
+      recognitionRestartTimer = null;
+      startListening();
+    }, delay);
+  }
+
   function startListening() {
-    if (!SR || listening) return;
+    if (!SR || !voiceMode || processing || rec || listening) return;
+    clearTimeout(recognitionRestartTimer);
+    recognitionRestartTimer = null;
     listening = true;
     setStatus('Listening...');
-    rec = makeRecognition();
-    try { rec.start(); } catch (e) { listening = false; }
+    var next = makeRecognition();
+    rec = next;
+    try { next.start(); } catch (e) {
+      if (rec === next) {
+        rec = null;
+        listening = false;
+        scheduleListening(1200);
+      }
+    }
   }
 
   function customilyEditorReady() {
-    return !!document.querySelector('.customily-modal-container, #cl_optionsapp .customily_option');
+    var editor = document.querySelector('#cl_optionsapp');
+    return !!(editor && editor.getBoundingClientRect().height > 10 && editor.querySelector('.customily_option') && window.__wizHandleVoiceCommand);
+  }
+
+  function productArrivalGreeting() {
+    var names = Array.from(document.querySelectorAll('#cl_optionsapp .customily_option .option_name')).map(function (el) { return el.textContent.toLowerCase(); }).join(' ');
+    var choices = [];
+    if (/\b(edge|border)\b/.test(names)) choices.push('the edge');
+    if (/\b(colou?r)\b/.test(names)) choices.push('the color');
+    if (/\b(image|picture|artwork)\b/.test(names)) choices.push('the pictures');
+    var also = choices.length ? ' We can also change ' + choices.join(', ').replace(/, ([^,]*)$/, ' and $1') + ', whatever you like.' : '';
+    return "Okay, now let's change what you want to say." + also + " What would you like to do first? To change the text, just say, make it say Robert's room.";
+  }
+
+  function speakProductArrival() {
+    if (arrivalIntroInProgress || !voiceMode) return;
+    arrivalIntroInProgress = true;
+    processing = true;
+    var greeting = productArrivalGreeting();
+    addMsg(greeting, 'cw-ai');
+    setStatus('Speaking...');
+    speak(greeting, function () {
+      if (!arrivalIntroInProgress) return;
+      arrivalIntroInProgress = false;
+      processing = false;
+      if (voiceMode) startListening();
+    });
   }
 
   function resumeSheriffAfterEditorReady() {
     if (!awaitingArrivalMic || !SR) return;
     function begin() {
+      if (cancelArrivalWait) cancelArrivalWait();
       voiceMode = true;
       micBtn.textContent = '🔴';
       micBtn.classList.add('cw-mic-active');
       ensureSheriffRourke();
-      startListening();
+      speakProductArrival();
     }
     if (customilyEditorReady()) { begin(); return; }
     // Customily adds its panel asynchronously. Watch for that exact event
@@ -347,19 +401,26 @@
         begin();
       }
     });
-    var expire = setTimeout(function () { observer.disconnect(); }, 60000);
-    observer.observe(document.documentElement, { childList: true, subtree: true });
+    var expire = setTimeout(function () { cancelArrivalWait(); }, 60000);
+    cancelArrivalWait = function () { observer.disconnect(); clearTimeout(expire); cancelArrivalWait = null; };
+    observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
   }
 
   function stopVoiceMode() {
     voiceMode = false;
+    if (cancelArrivalWait) cancelArrivalWait();
+    if (arrivalIntroInProgress) { speechGeneration++; arrivalIntroInProgress = false; processing = false; }
     micBtn.textContent = '🎤';
     micBtn.classList.remove('cw-mic-active');
     bubble.classList.remove('cw-bubble-listening');
     setStatus('');
     try { audioEl.pause(); } catch (e) {}
-    if (rec) { try { rec.abort(); } catch (e) {} }
+    clearTimeout(recognitionRestartTimer);
+    recognitionRestartTimer = null;
+    var stopped = rec;
+    rec = null;
     listening = false;
+    if (stopped) { try { stopped.abort(); } catch (e) {} }
   }
 
   document.addEventListener('visibilitychange', function () {
