@@ -145,11 +145,59 @@
 
   var audioEl = new Audio();
   var speechGeneration = 0;
+  var speechActive = false;
+  var speechText = '';
+  var recentSpeechText = '';
+  var echoGraceUntil = 0;
+  var speechController = null;
+  var speechUrl = null;
+  var chatGeneration = 0;
+
+  function speechWords(text) {
+    return String(text || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  function isSheriffEcho(text) {
+    var heard = speechWords(text);
+    if (/^(stop|wait|pause|quiet|hush|be quiet|stop talking|hold on)$/.test(heard)) return false;
+    var said = speechActive ? speechText : (Date.now() < echoGraceUntil ? recentSpeechText : '');
+    return !!heard && (' ' + speechWords(said) + ' ').indexOf(' ' + heard + ' ') !== -1;
+  }
+  function interruptSpeech() {
+    speechGeneration++;
+    if (speechActive) echoGraceUntil = Date.now() + 700;
+    speechActive = false;
+    speechText = '';
+    if (speechController) { speechController.abort(); speechController = null; }
+    audioEl.onended = audioEl.onerror = audioEl.onplaying = null;
+    try { audioEl.pause(); } catch (e) {}
+    if (speechUrl) { URL.revokeObjectURL(speechUrl); speechUrl = null; }
+    if (arrivalExample) { arrivalExample.clear(); arrivalExample = null; }
+    arrivalIntroInProgress = false;
+    processing = false;
+  }
   function speak(text, onDone, onStart) {
     var generation = ++speechGeneration;
-    function done() { if (generation === speechGeneration && onDone) onDone(); }
+    speechActive = true;
+    speechText = text;
+    recentSpeechText = text;
+    var controller = new AbortController();
+    speechController = controller;
+    var finished = false;
+    function done() {
+      if (generation !== speechGeneration || finished) return;
+      finished = true;
+      echoGraceUntil = Date.now() + 700;
+      speechActive = false;
+      speechText = '';
+      speechController = null;
+      if (speechUrl) { URL.revokeObjectURL(speechUrl); speechUrl = null; }
+      if (onDone) onDone();
+    }
+    // The recognizer stays open while Sheriff speaks so the guest can cut in.
+    if (voiceMode) startListening();
     fetch(API + '/tts', {
       method: 'POST',
+      signal: controller.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: text })
     }).then(function (res) {
@@ -157,19 +205,23 @@
       return res.blob();
     }).then(function (blob) {
       if (generation !== speechGeneration) return;
-      var url = URL.createObjectURL(blob);
-      audioEl.onended = function () { URL.revokeObjectURL(url); done(); };
-      audioEl.onerror = function () { URL.revokeObjectURL(url); done(); };
-      audioEl.onplaying = function () { if (generation === speechGeneration && onStart) { var start = onStart; onStart = null; start(); } };
-      audioEl.src = url;
-      audioEl.play().catch(function () { done(); });
-    }).catch(function () {
-      done();
-    });
+      speechUrl = URL.createObjectURL(blob);
+      audioEl.onended = done;
+      audioEl.onerror = done;
+      audioEl.onplaying = function () {
+        if (generation !== speechGeneration) return;
+        setStatus('Speaking — you can interrupt');
+        if (onStart) { var start = onStart; onStart = null; start(); }
+      };
+      audioEl.src = speechUrl;
+      audioEl.play().catch(done);
+    }).catch(done);
   }
 
   async function send(text) {
     if (!text.trim()) return;
+    if (speechActive) interruptSpeech();
+    var requestGeneration = ++chatGeneration;
     processing = true;
     // On a product page, the Customily voice wizard exposes its own
     // command handler so Sheriff Rourke's ONE box (typed OR mic) drives
@@ -205,12 +257,14 @@
       });
       data = await res.json();
     } catch (e) {
+      if (requestGeneration !== chatGeneration) return;
       addMsg('Sorry, having trouble connecting right now.', 'cw-ai');
       setStatus('');
       processing = false;
       if (voiceMode) startListening();
       return;
     }
+    if (requestGeneration !== chatGeneration) return;
     if (data.error) {
       addMsg('Error: ' + data.error, 'cw-ai');
       setStatus('');
@@ -284,7 +338,8 @@
   function makeRecognition() {
     var r = new SR();
     r.lang = 'en-US';
-    r.interimResults = false;
+    r.continuous = true;
+    r.interimResults = true;
     r.maxAlternatives = 1;
     r.onstart = function () {
       if (rec !== r || !voiceMode) { try { r.abort(); } catch (e) {} return; }
@@ -299,12 +354,29 @@
         awaitingArrivalMic = false;
       }
     };
+    var handledResults = {};
     r.onresult = function (e) {
-      if (rec !== r || !voiceMode || processing) return;
-      // Routing (chat vs. the product-page voice wizard) all happens
-      // inside send() now, so both the mic and the typed Send button go
-      // through the exact same decision - see send().
-      send(e.results[0][0].transcript);
+      if (rec !== r || !voiceMode) return;
+      for (var index = e.resultIndex || 0; index < e.results.length; index++) {
+        var result = e.results[index];
+        var text = result[0].transcript.trim();
+        if (!text || handledResults[index]) continue;
+        // Also ignore a delayed echo result arriving just after playback ends.
+        if (isSheriffEcho(text)) { if (result.isFinal) handledResults[index] = true; continue; }
+        if (speechActive) {
+          interruptSpeech();
+          setStatus('Listening...');
+        }
+        if (processing) continue;
+        if (result.isFinal === false) continue;
+        handledResults[index] = true;
+        // Stop/wait is an interruption, not wording to put on the sign.
+        if (/^(stop|wait|pause|quiet|hush|be quiet|stop talking|hold on)[.!?]*$/i.test(text)) {
+          setStatus('Listening...');
+          continue;
+        }
+        send(text);
+      }
     };
     var restartDelay = 400;
     r.onerror = function (event) {
@@ -321,7 +393,7 @@
       if (rec !== r) return;
       rec = null;
       listening = false;
-      if (voiceMode && !processing) scheduleListening(restartDelay);
+      if (voiceMode && (!processing || speechActive)) scheduleListening(restartDelay);
     };
     return r;
   }
@@ -329,7 +401,7 @@
   function scheduleListening(delay) {
     clearTimeout(recognitionRestartTimer);
     recognitionRestartTimer = null;
-    if (!voiceMode || processing || rec) return;
+    if (!voiceMode || (processing && !speechActive) || rec) return;
     recognitionRestartTimer = setTimeout(function () {
       recognitionRestartTimer = null;
       startListening();
@@ -337,11 +409,11 @@
   }
 
   function startListening() {
-    if (!SR || !voiceMode || processing || rec || listening) return;
+    if (!SR || !voiceMode || (processing && !speechActive) || rec || listening) return;
     clearTimeout(recognitionRestartTimer);
     recognitionRestartTimer = null;
     listening = true;
-    setStatus('Listening...');
+    setStatus(speechActive ? 'Speaking — you can interrupt' : 'Listening...');
     var next = makeRecognition();
     rec = next;
     try { next.start(); } catch (e) {
@@ -419,6 +491,8 @@
 
   function stopVoiceMode() {
     voiceMode = false;
+    interruptSpeech();
+    chatGeneration++;
     if (cancelArrivalWait) cancelArrivalWait();
     if (arrivalExample) { arrivalExample.clear(); arrivalExample = null; }
     if (arrivalIntroInProgress) { speechGeneration++; arrivalIntroInProgress = false; processing = false; }
@@ -454,7 +528,7 @@
         if (!history.length && !justArrived && !window.__wizGreeted) {
           window.__wizGreeted = true;
           openPanel();
-          var greeting = "Howdy! I'm Sheriff Rourke. Tell me what kind of sign you have in mind, and I'll get you started.";
+          var greeting = "Howdy! I'm Sheriff Rourke. Tell me the kind of sign you want.";
           addMsg(greeting, 'cw-ai');
           speak(greeting, function () { if (voiceMode) startListening(); });
         } else {
