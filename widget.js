@@ -316,7 +316,19 @@
         micBtn.classList.add('cw-mic-active');
         try { audioEl.play().catch(function () {}); audioEl.pause(); } catch (e) {}
         ensureSheriffRourke();
-        startListening();
+        // First time voice mode kicks in on a fresh visit (no prior chat
+        // history, not arriving from a Sheriff-driven navigation), greet
+        // out loud before listening - otherwise the guest is left staring
+        // at a silent, listening mic with no idea Sheriff Rourke is ready.
+        if (!history.length && !justArrived && !window.__wizGreeted) {
+          window.__wizGreeted = true;
+          openPanel();
+          var greeting = "Howdy! I'm Sheriff Rourke. Tell me what kind of sign you have in mind, and I'll get you started.";
+          addMsg(greeting, 'cw-ai');
+          speak(greeting, function () { if (voiceMode) startListening(); });
+        } else {
+          startListening();
+        }
         // On the product page, Sheriff Rourke's job is to change the sign
         // while the guest WATCHES it change - the chat panel just gets in
         // the way of that. Tuck it away a beat after tapping the mic (so
