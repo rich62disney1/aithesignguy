@@ -206,12 +206,12 @@
     addProducts(data.products);
     if (data.products && data.products.length) { lastProducts = data.products; }
     if (data.action === 'confirmed' && lastProducts.length) {
-      setStatus("Taking you there — I'll be right here when you get there.");
+      setStatus('Opening your sign...');
       var target = lastProducts[0].url;
       var st = loadState();
       st.pendingArrival = true;
       saveState(st);
-      setTimeout(function () { window.location.href = target; }, 1800);
+      setTimeout(function () { window.location.href = target; }, 250);
     }
     history.push({ role: 'assistant', content: JSON.stringify({ reply: data.reply, show: (data.products || []).map(function (p) { return p.name; }), action: data.action }) });
     persist();
@@ -280,11 +280,7 @@
     };
     r.onend = function () {
       listening = false;
-      // Recognition ended on its own (silence timeout, not an error and
-      // not because we already have a result to handle) - if hands-free
-      // mode is still on and nothing is being processed, just start
-      // listening again instead of leaving the guest hanging.
-      if (voiceMode && !processing) { startListening(); }
+      if (voiceMode && !processing) stopVoiceMode();
     };
     return r;
   }
@@ -340,7 +336,6 @@
     renderHistory();
     openPanel();
     if (justArrived) {
-      addMsg("Here we are! Taking you right into the editor — I'm right here if you want to see something else.", 'cw-ai');
       var cleared = loadState();
       cleared.pendingArrival = false;
       saveState(cleared);
@@ -348,17 +343,6 @@
       // guest read the welcome-back message, then get the panel out of
       // the way of the actual sign so there's something to look at.
       if (window.__wizHandleVoiceCommand) { tuckPanelAway(); }
-      // Sheriff Rourke was already talking to the guest before this page
-      // even loaded - there's no click to make here. Resume listening
-      // automatically so "pick a design" flows straight into "start
-      // customizing it" with zero taps.
-      if (SR && !voiceMode) {
-        voiceMode = true;
-        micBtn.textContent = '🔴';
-        micBtn.classList.add('cw-mic-active');
-        ensureSheriffRourke();
-        setTimeout(function () { if (voiceMode) startListening(); }, 1500);
-      }
     }
   }
 })();

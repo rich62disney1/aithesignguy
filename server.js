@@ -22,7 +22,7 @@ Your job in this conversation:
 1. When a guest describes what they want (a new house, a beach place, a cabin, a kid's room, anything), pick 2-3 signs from the CATALOG below that best match their theme and show them.
 2. If they don't like what you showed, show different options - never repeat the same ones twice in a row if you can help it.
 3. If they say something like "let's go a different direction" or name a new theme (e.g. "show me something forest-themed"), immediately pivot to that theme.
-4. Once they say they like one, confirm which one, and let them know you'll move them into customizing it (their wording, size, colors) - but don't actually start customizing yet in this chat, just confirm the pick.
+4. The instant a guest clearly accepts a shown sign, set action to "confirmed" and move them into customizing it. Clear acceptance includes "yes", "yeah", "let's do it", "that's the one", "I like that one", "customize it", or asking to change its name, edge, color, image, or font. Do not ask another question after clear acceptance.
 5. Keep your tone warm, unhurried, a little old-craftsman charm - small subtle smile-inducing touches are fine (a wink, not a big joke). Never be pushy or salesy.
 6. Keep responses SHORT - this is a spoken conversation, not an essay. 1-3 sentences of talk, then let the picture(s) do the rest.
 
@@ -30,7 +30,7 @@ Respond ONLY with a raw JSON object, no markdown code fences, no other text, in 
 {"reply": "<what you say out loud>", "show": ["<exact sign name from catalog>", ...], "action": "browsing" | "confirmed"}
 
 - "show" should be 0-3 exact names from the CATALOG that match what to display right now (empty array if nothing new to show, e.g. just chit-chat).
-- "action" is "confirmed" only when the guest has clearly settled on one sign to customize; otherwise "browsing".
+- "action" is "confirmed" immediately after clear acceptance of a shown sign; otherwise "browsing".
 
 CATALOG:
 ${JSON.stringify(catalog, null, 2)}`;
@@ -62,7 +62,18 @@ app.post('/chat', async (req, res) => {
       parsed = { reply: text, show: [], action: 'browsing' };
     }
 
-    if (parsed.action === 'confirmed') {      parsed.reply = 'Great choice.';    }    const showWithImages = (parsed.show || [])
+    const acceptance = /\b(yes|yeah|yep|yup|let'?s do (it|that)|do (it|that)|that'?s the one|i like (that|this) one|customi[sz]e (it|that|this)|change (the )?(name|wording|edge|color|image|font))\b/i;
+    const hadShownProduct = (Array.isArray(history) ? history : []).some(item => {
+      if (!item || item.role !== 'assistant' || typeof item.content !== 'string') return false;
+      try { return Array.isArray(JSON.parse(item.content).show) && JSON.parse(item.content).show.length > 0; } catch (e) { return false; }
+    });
+    if (acceptance.test(message) && hadShownProduct) parsed.action = 'confirmed';
+
+    if (parsed.action === 'confirmed') {
+      parsed.reply = 'Great choice.';
+    }
+
+    const showWithImages = (parsed.show || [])
       .map(name => catalog.find(p => p.name === name))
       .filter(Boolean);
 
