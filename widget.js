@@ -175,15 +175,28 @@
     if (window.__wizHandleVoiceCommand) {
       addMsg(text, 'cw-me');
       inputEl.value = '';
-      window.__wizHandleVoiceCommand(text);
-      setStatus('');
-      processing = false;
+      // The wizard now reports back what it actually did (or, if it just
+      // moved to a step without picking anything, what the choices are)
+      // so Sheriff Rourke can confirm it instead of silently changing the
+      // sign - a guest with no confirmation has no way to know a spoken
+      // command landed, which is why repeated "change the edge" attempts
+      // showed up in a real test transcript with nothing said back.
+      var wizReply = window.__wizHandleVoiceCommand(text);
       // The product itself gets the screen, not the chat panel - as soon
       // as a command (typed OR spoken) reaches the wizard, tuck the panel
       // away and leave just the pulsing dot so the guest can watch the
       // sign actually change.
       tuckPanelAway();
-      if (voiceMode) { setTimeout(function () { if (voiceMode) startListening(); }, 400); }
+      if (wizReply) { addMsg(wizReply, 'cw-ai'); }
+      if (voiceMode && wizReply) {
+        setStatus('Speaking...');
+        processing = true;
+        speak(wizReply, function () { processing = false; if (voiceMode) startListening(); });
+      } else {
+        setStatus('');
+        processing = false;
+        if (voiceMode) { setTimeout(function () { if (voiceMode) startListening(); }, 400); }
+      }
       return;
     }
     addMsg(text, 'cw-me');
