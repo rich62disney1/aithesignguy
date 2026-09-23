@@ -144,84 +144,27 @@
   }
 
   var audioEl = new Audio();
-  var speechGeneration = 0;
-  var speechActive = false;
-  var speechText = '';
-  var recentSpeechText = '';
-  var echoGraceUntil = 0;
-  var speechController = null;
-  var speechUrl = null;
-  var chatGeneration = 0;
-
-  function speechWords(text) {
-    return String(text || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
-  }
-  function isSheriffEcho(text) {
-    var heard = speechWords(text);
-    if (/^(stop|wait|pause|quiet|hush|be quiet|stop talking|hold on)$/.test(heard)) return false;
-    var said = speechActive ? speechText : (Date.now() < echoGraceUntil ? recentSpeechText : '');
-    return !!heard && (' ' + speechWords(said) + ' ').indexOf(' ' + heard + ' ') !== -1;
-  }
-  function interruptSpeech() {
-    speechGeneration++;
-    if (speechActive) echoGraceUntil = Date.now() + 700;
-    speechActive = false;
-    speechText = '';
-    if (speechController) { speechController.abort(); speechController = null; }
-    audioEl.onended = audioEl.onerror = audioEl.onplaying = null;
-    try { audioEl.pause(); } catch (e) {}
-    if (speechUrl) { URL.revokeObjectURL(speechUrl); speechUrl = null; }
-    if (arrivalExample) { arrivalExample.clear(); arrivalExample = null; }
-    arrivalIntroInProgress = false;
-    processing = false;
-  }
-  function speak(text, onDone, onStart) {
-    var generation = ++speechGeneration;
-    speechActive = true;
-    speechText = text;
-    recentSpeechText = text;
-    var controller = new AbortController();
-    speechController = controller;
-    var finished = false;
-    function done() {
-      if (generation !== speechGeneration || finished) return;
-      finished = true;
-      echoGraceUntil = Date.now() + 700;
-      speechActive = false;
-      speechText = '';
-      speechController = null;
-      if (speechUrl) { URL.revokeObjectURL(speechUrl); speechUrl = null; }
-      if (onDone) onDone();
-    }
-    // The recognizer stays open while Sheriff speaks so the guest can cut in.
-    if (voiceMode) startListening();
+  function speak(text, onDone) {
     fetch(API + '/tts', {
       method: 'POST',
-      signal: controller.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: text })
     }).then(function (res) {
       if (!res.ok) throw new Error('tts failed');
       return res.blob();
     }).then(function (blob) {
-      if (generation !== speechGeneration) return;
-      speechUrl = URL.createObjectURL(blob);
-      audioEl.onended = done;
-      audioEl.onerror = done;
-      audioEl.onplaying = function () {
-        if (generation !== speechGeneration) return;
-        setStatus('Speaking — you can interrupt');
-        if (onStart) { var start = onStart; onStart = null; start(); }
-      };
-      audioEl.src = speechUrl;
-      audioEl.play().catch(done);
-    }).catch(done);
+      var url = URL.createObjectURL(blob);
+      audioEl.onended = function () { URL.revokeObjectURL(url); if (onDone) onDone(); };
+      audioEl.onerror = function () { URL.revokeObjectURL(url); if (onDone) onDone(); };
+      audioEl.src = url;
+      audioEl.play().catch(function () { if (onDone) onDone(); });
+    }).catch(function () {
+      if (onDone) onDone();
+    });
   }
 
   async function send(text) {
     if (!text.trim()) return;
-    if (speechActive) interruptSpeech();
-    var requestGeneration = ++chatGeneration;
     processing = true;
     // On a product page, the Customily voice wizard exposes its own
     // command handler so Sheriff Rourke's ONE box (typed OR mic) drives
@@ -240,7 +183,7 @@
       // away and leave just the pulsing dot so the guest can watch the
       // sign actually change.
       tuckPanelAway();
-      if (voiceMode) scheduleListening(400);
+      if (voiceMode) { setTimeout(function () { if (voiceMode) startListening(); }, 400); }
       return;
     }
     addMsg(text, 'cw-me');
@@ -257,14 +200,12 @@
       });
       data = await res.json();
     } catch (e) {
-      if (requestGeneration !== chatGeneration) return;
       addMsg('Sorry, having trouble connecting right now.', 'cw-ai');
       setStatus('');
       processing = false;
       if (voiceMode) startListening();
       return;
     }
-    if (requestGeneration !== chatGeneration) return;
     if (data.error) {
       addMsg('Error: ' + data.error, 'cw-ai');
       setStatus('');
@@ -299,13 +240,9 @@
 
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   var rec = null;
-  var recognitionRestartTimer = null;
   var listening = false;
   var voiceMode = false;
   var awaitingArrivalMic = justArrived;
-  var arrivalIntroInProgress = false;
-  var arrivalExample = null;
-  var cancelArrivalWait = null;
   var sheriffRourke = null;
   // True from the moment a heard/typed phrase starts being handled until
   // Sheriff Rourke is fully done with it (chat reply + speech, or the
@@ -316,6 +253,8 @@
   // we're just sitting idle (not mid-response), so a pause doesn't kill
   // hands-free mode.
   var processing = false;
+  var retryTimer = null;
+  var recFailCount = 0;
 
   function ensureSheriffRourke() {
     if (sheriffRourke || !window.SheriffRourkeAvatar) return;
@@ -338,12 +277,11 @@
   function makeRecognition() {
     var r = new SR();
     r.lang = 'en-US';
-    r.continuous = true;
-    r.interimResults = true;
+    r.interimResults = false;
     r.maxAlternatives = 1;
     r.onstart = function () {
-      if (rec !== r || !voiceMode) { try { r.abort(); } catch (e) {} return; }
       listening = true;
+      recFailCount = 0;
       // This is the success point: leave the arrival marker in place until
       // the browser has really opened the microphone, not merely until a
       // timer has elapsed.
@@ -354,125 +292,70 @@
         awaitingArrivalMic = false;
       }
     };
-    var handledResults = {};
     r.onresult = function (e) {
-      if (rec !== r || !voiceMode) return;
-      for (var index = e.resultIndex || 0; index < e.results.length; index++) {
-        var result = e.results[index];
-        var text = result[0].transcript.trim();
-        if (!text || handledResults[index]) continue;
-        // Also ignore a delayed echo result arriving just after playback ends.
-        if (isSheriffEcho(text)) { if (result.isFinal) handledResults[index] = true; continue; }
-        if (speechActive) {
-          interruptSpeech();
-          setStatus('Listening...');
-        }
-        if (processing) continue;
-        if (result.isFinal === false) continue;
-        handledResults[index] = true;
-        // Stop/wait is an interruption, not wording to put on the sign.
-        if (/^(stop|wait|pause|quiet|hush|be quiet|stop talking|hold on)[.!?]*$/i.test(text)) {
-          setStatus('Listening...');
-          continue;
-        }
-        send(text);
-      }
+      // Routing (chat vs. the product-page voice wizard) all happens
+      // inside send() now, so both the mic and the typed Send button go
+      // through the exact same decision - see send().
+      send(e.results[0][0].transcript);
     };
-    var restartDelay = 400;
-    r.onerror = function (event) {
-      if (rec !== r || !voiceMode) return;
-      if (event && ['not-allowed', 'service-not-allowed', 'audio-capture'].indexOf(event.error) !== -1) {
-        stopVoiceMode();
-        setStatus('Microphone unavailable. Check microphone access, then tap to talk.');
-        return;
+    r.onerror = function () {
+      listening = false;
+      if (voiceMode) {
+        recFailCount++;
+        // A single tracked retry timer, not a fire-and-forget one: onerror
+        // and onend used to each schedule their own setTimeout with nothing
+        // cancelling the other, so a persistent failure (mic permission
+        // blocked, etc.) piled up an ever-growing stack of pending retries
+        // instead of one at a time - that's what was spinning the CPU.
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+        if (recFailCount >= 8) {
+          // Give up instead of retrying forever - a guest with a blocked
+          // or broken mic should see a clear message, not a silent CPU burn.
+          voiceMode = false;
+          micBtn.textContent = '🎤';
+          micBtn.classList.remove('cw-mic-active');
+          setStatus('Microphone unavailable. Tap the mic to try again.');
+          return;
+        }
+        setStatus('Listening error, retrying...');
+        retryTimer = setTimeout(function () { retryTimer = null; if (voiceMode) startListening(); }, 1200);
       }
-      restartDelay = 1200;
-      setStatus('Reconnecting microphone...');
     };
     r.onend = function () {
-      if (rec !== r) return;
-      rec = null;
       listening = false;
-      if (voiceMode && (!processing || speechActive)) scheduleListening(restartDelay);
+      // A throttle here, not an instant restart - if the browser ends
+      // recognition immediately after starting it (a mic-access hiccup),
+      // an instant restart just re-triggers the same instant end again,
+      // spinning as fast as the event loop allows. This caps it to a
+      // couple of tries a second instead of a runaway loop.
+      if (voiceMode && !processing) {
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+        retryTimer = setTimeout(function () { retryTimer = null; if (voiceMode && !processing && !listening) startListening(); }, 400);
+      }
     };
     return r;
   }
 
-  function scheduleListening(delay) {
-    clearTimeout(recognitionRestartTimer);
-    recognitionRestartTimer = null;
-    if (!voiceMode || (processing && !speechActive) || rec) return;
-    recognitionRestartTimer = setTimeout(function () {
-      recognitionRestartTimer = null;
-      startListening();
-    }, delay);
-  }
-
   function startListening() {
-    if (!SR || !voiceMode || (processing && !speechActive) || rec || listening) return;
-    clearTimeout(recognitionRestartTimer);
-    recognitionRestartTimer = null;
+    if (!SR || listening) return;
     listening = true;
-    setStatus(speechActive ? 'Speaking — you can interrupt' : 'Listening...');
-    var next = makeRecognition();
-    rec = next;
-    try { next.start(); } catch (e) {
-      if (rec === next) {
-        rec = null;
-        listening = false;
-        scheduleListening(1200);
-      }
-    }
+    setStatus('Listening...');
+    rec = makeRecognition();
+    try { rec.start(); } catch (e) { listening = false; }
   }
 
   function customilyEditorReady() {
-    var editor = document.querySelector('#cl_optionsapp');
-    return !!(editor && editor.getBoundingClientRect().height > 10 && editor.querySelector('.customily_option') && window.__wizHandleVoiceCommand);
-  }
-
-  function productArrivalGreeting() {
-    var names = Array.from(document.querySelectorAll('#cl_optionsapp .customily_option .option_name')).map(function (el) { return el.textContent.toLowerCase(); }).join(' ');
-    var choices = [];
-    if (/\b(edge|border)\b/.test(names)) choices.push('the edge');
-    if (/\b(colou?r)\b/.test(names)) choices.push('the color');
-    if (/\b(image|picture|artwork)\b/.test(names)) choices.push('the pictures');
-    return choices.length ? 'You can change ' + choices.join(', ').replace(/, ([^,]*)$/, ' and $1') + ' by talking, too.' : 'You can change the words just by talking.';
-  }
-
-  function speakProductArrival() {
-    if (arrivalIntroInProgress || !voiceMode) return;
-    arrivalIntroInProgress = true;
-    processing = true;
-    arrivalExample = window.__wizCreateSpeechExample ? window.__wizCreateSpeechExample() : null;
-    var intro = "Hey, it's super easy. Here's an example.";
-    var example = arrivalExample ? 'Make it say ' + arrivalExample.text + '.' : '';
-    var after = productArrivalGreeting();
-    addMsg(intro + ' ' + example + ' ' + after, 'cw-ai');
-    setStatus('Speaking...');
-    function finish() {
-      if (!arrivalIntroInProgress) return;
-      arrivalIntroInProgress = false;
-      processing = false;
-      if (voiceMode) startListening();
-    }
-    speak(intro, function () {
-      if (!arrivalIntroInProgress || !voiceMode) return;
-      if (!example) { speak(after, finish); return; }
-      speak(example + ' ' + after, finish, function () {
-        if (arrivalIntroInProgress && voiceMode && arrivalExample) arrivalExample.show();
-      });
-    });
+    return !!document.querySelector('.customily-modal-container, #cl_optionsapp .customily_option');
   }
 
   function resumeSheriffAfterEditorReady() {
     if (!awaitingArrivalMic || !SR) return;
     function begin() {
-      if (cancelArrivalWait) cancelArrivalWait();
       voiceMode = true;
       micBtn.textContent = '🔴';
       micBtn.classList.add('cw-mic-active');
       ensureSheriffRourke();
-      speakProductArrival();
+      startListening();
     }
     if (customilyEditorReady()) { begin(); return; }
     // Customily adds its panel asynchronously. Watch for that exact event
@@ -484,29 +367,21 @@
         begin();
       }
     });
-    var expire = setTimeout(function () { cancelArrivalWait(); }, 60000);
-    cancelArrivalWait = function () { observer.disconnect(); clearTimeout(expire); cancelArrivalWait = null; };
-    observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
+    var expire = setTimeout(function () { observer.disconnect(); }, 60000);
+    observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 
   function stopVoiceMode() {
     voiceMode = false;
-    interruptSpeech();
-    chatGeneration++;
-    if (cancelArrivalWait) cancelArrivalWait();
-    if (arrivalExample) { arrivalExample.clear(); arrivalExample = null; }
-    if (arrivalIntroInProgress) { speechGeneration++; arrivalIntroInProgress = false; processing = false; }
     micBtn.textContent = '🎤';
     micBtn.classList.remove('cw-mic-active');
     bubble.classList.remove('cw-bubble-listening');
     setStatus('');
     try { audioEl.pause(); } catch (e) {}
-    clearTimeout(recognitionRestartTimer);
-    recognitionRestartTimer = null;
-    var stopped = rec;
-    rec = null;
+    if (rec) { try { rec.abort(); } catch (e) {} }
     listening = false;
-    if (stopped) { try { stopped.abort(); } catch (e) {} }
+    recFailCount = 0;
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
   }
 
   document.addEventListener('visibilitychange', function () {
@@ -528,7 +403,12 @@
         if (!history.length && !justArrived && !window.__wizGreeted) {
           window.__wizGreeted = true;
           openPanel();
-          var greeting = "Howdy! I'm Sheriff Rourke. Tell me the kind of sign you want.";
+          // On a product page the guest already picked their sign - asking
+          // "what kind of sign do you have in mind" tells them Sheriff has
+          // no idea what they're looking at. Greet in context instead.
+          var greeting = window.__wizHandleVoiceCommand
+            ? "Howdy! I'm Sheriff Rourke. Let's get this sign fixed up just how you want it - tell me what you'd like to change."
+            : "Howdy! I'm Sheriff Rourke. Tell me what kind of sign you have in mind, and I'll get you started.";
           addMsg(greeting, 'cw-ai');
           speak(greeting, function () { if (voiceMode) startListening(); });
         } else {
